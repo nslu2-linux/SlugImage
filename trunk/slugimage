@@ -1,0 +1,200 @@
+#!/usr/bin/perl
+#
+# SlugImage : manipulate NSLU2 firmware images
+#             initial version: Dwayne (jacques) Fontenot Nov-11-2004
+#
+
+use strict;
+use warnings;
+
+
+sub ffPad {
+    my($data,$total_len) = @_;
+
+    my($pad_char) = pack("C",0xff);
+    my($pad_len) = $total_len - length($data);
+
+    return $data . $pad_char x $pad_len;
+}
+
+sub ramdiskPaddedSize {
+    my($ramdisk_len) = @_;
+
+    my($block_size) = 0x00020000;
+    use integer;
+    return ($ramdisk_len / $block_size) * $block_size + $block_size;
+}
+
+sub flashdiskPaddedSize {
+    my($ramdisk_len) = @_;
+
+    return 0x00680000 - ramdiskPaddedSize($ramdisk_len);
+}
+
+sub jffs2Block {
+    return ffPad(pack("N3", 0x19852003, 0x0000000c, 0xf060dc98), 0x00020000);
+}
+
+sub partitionEntry {
+    my($name, $flash_base, $size) = @_;
+
+    my($zero_long) = 0x0000;
+
+    return pack("a16N5x212N2",$name,$flash_base,$zero_long,$size,$zero_long,$zero_long,$zero_long,$zero_long);
+}
+
+sub partitionTable {
+    my($ramdisk_len) = @_;
+
+    my($ramdisk_start, $ramdisk_padded_size, $flashdisk_start, $flashdisk_padded_size);
+
+    $ramdisk_padded_size = ramdiskPaddedSize($ramdisk_len);
+    $ramdisk_start = 0x00160000;
+    $flashdisk_start = $ramdisk_start + $ramdisk_padded_size;
+    $flashdisk_padded_size = flashdiskPaddedSize($ramdisk_len);
+
+    my(@partitions) = (['RedBoot',      0x00000000,      0x00040000],
+		       ['SysConf',      0x00040000,      0x00020000],
+		       ['Kernel',       0x00060000,      0x00100000],
+		       ['Ramdisk',      $ramdisk_start,  $ramdisk_padded_size],
+		       ['Flashdisk',    $flashdisk_start,$flashdisk_padded_size],
+		       ['FIS directory',0x007e0000,      0x00020000]);
+
+    my($flash_start) = 0x50000000;
+    my($partition_data);
+
+    foreach(@partitions){
+	printf("%s\t\t0x%lx\t0x%lx\n",@$_[0],@$_[1] + $flash_start,@$_[2]);
+
+	$partition_data .= partitionEntry(@$_[0],@$_[1] + $flash_start,@$_[2]);
+    }
+    return $partition_data;
+}
+
+sub trailerData {
+    my($product_id)       = 0x0001;
+    my($protocol_id)      = 0x0000;
+    my($firmware_version) = 0x2325;
+    my($unknown1)         = 0x90f7;
+    my($magic_number)     = 'eRcOmM';
+    my($unknown2)         = 0x00b9;
+
+    return pack("n4a6n",$product_id,$protocol_id,$firmware_version,$unknown1,$magic_number,$unknown2);
+}
+
+sub lastBlock {
+    my($ramdisk_len) = @_;
+
+    my($block_size)      = 0x00020000;
+    my($trailer_data)    = trailerData();
+
+    return ffPad(partitionTable($ramdisk_len), $block_size - length($trailer_data)) . $trailer_data;
+}
+
+sub readInFirmware{
+    my($filename) = @_;
+
+    my($firmware_buf);
+
+    my($total_length)   = 0x800000;
+
+    my($redboot_length) = 0x40000;
+    my($redboot_start)  = 0x0;
+
+    my($sysconf_length) = 0x20000;
+    my($sysconf_start)  = $redboot_start + $redboot_length;
+
+    my($kernel_length)  = 0x100000;
+    my($kernel_start)   = $sysconf_start + $sysconf_length;
+
+    my($ramdisk_length) = 0x6A0000;
+    my($ramdisk_start)  = $kernel_start + $kernel_length;
+
+    open FILE,$filename or die "can't find firmware image $filename: $!\n";
+
+    read FILE,$firmware_buf,$total_length or die "can't read $total_length bytes of file $filename: $!\n";
+
+    my($redboot_buf) = substr($firmware_buf, $redboot_start, $redboot_length);
+    print "RedBoot is ",length($redboot_buf)," bytes long\n";
+
+    my($sysconf_buf) = substr($firmware_buf, $sysconf_start, $sysconf_length);
+    print "SysConf is ",length($sysconf_buf)," bytes long\n";
+
+    my($kernel_buf)  = substr($firmware_buf, $kernel_start,  $kernel_length);
+    $kernel_buf  = substr($kernel_buf, 16, unpack("N",$kernel_buf));
+    print "Kernel is ",length($kernel_buf)," bytes long\n";
+
+    my($ramdisk_buf) = substr($firmware_buf, $ramdisk_start, $ramdisk_length);
+    $ramdisk_buf = substr($ramdisk_buf, 16, unpack("N",$ramdisk_buf));
+    print "Ramdisk is ",length($ramdisk_buf)," bytes long\n";
+
+    return($redboot_buf, $sysconf_buf, $kernel_buf, $ramdisk_buf);
+}
+
+sub readInFirmwareParts {
+    my(%parts) = ('RedBoot'=>'','SysConf'=>'','Kernel'=>'','Ramdisk'=>'','Flashdisk'=>'');
+
+    undef $/; # we want to slurp
+
+    foreach(keys %parts){
+	open FILE,$_ or die "can't find firmware part $_: $!\n"; # should not die here
+	$parts{$_} = <FILE>;
+	print length($parts{$_}),"\n";
+    }
+
+    return($parts{'RedBoot'},$parts{'SysConf'},$parts{'Kernel'},$parts{'Ramdisk'},$parts{'Flashdisk'});
+}
+
+sub packImage {
+    my($redboot_buf, $sysconf_buf, $kernel_buf, $ramdisk_buf, $flashdisk_buf) = @_;
+
+    my($ramdisk_len) = length($ramdisk_buf);
+
+    my($kernel_header)  = pack("N4",length($kernel_buf));
+    my($ramdisk_header) = pack("N4",$ramdisk_len);
+
+    my($ramdisk_padded_size) = ramdiskPaddedSize($ramdisk_len);
+
+    return $redboot_buf . $sysconf_buf . ffPad($kernel_header . $kernel_buf, 0x100000) .
+	ffPad($ramdisk_header . $ramdisk_buf, $ramdisk_padded_size) .
+	ffPad($flashdisk_buf, flashdiskPaddedSize($ramdisk_len)) . lastBlock(length($ramdisk_buf));
+}
+
+sub writeOut {
+    my($data, $filename) = @_;
+
+    open FILE,">$filename" or die "can't open file $filename: $!\n";
+
+    if(defined($data)){ print FILE $data;}
+
+    close FILE;
+}
+
+my($firmware) = 'unslung-able-nslu2-20041111151629.img';
+
+my($redboot_buf, $sysconf_buf, $kernel_buf, $ramdisk_buf) = readInFirmware($firmware);
+
+print "there is space for a ",flashdiskPaddedSize(length($ramdisk_buf))," byte Flashdisk partition\n";
+
+writeOut($redboot_buf, 'RedBoot');
+writeOut($sysconf_buf, 'SysConf');
+writeOut($kernel_buf,  'Kernel');
+writeOut($ramdisk_buf, 'Ramdisk');
+
+writeOut(lastBlock(length($ramdisk_buf)),'last_block0');
+
+my($flashdisk_buf);
+($redboot_buf, $sysconf_buf, $kernel_buf, $ramdisk_buf, $flashdisk_buf) = readInFirmwareParts();
+
+writeOut($redboot_buf,   'RedBoot.1');
+writeOut($sysconf_buf,   'SysConf.1');
+writeOut($kernel_buf,    'Kernel.1');
+writeOut($ramdisk_buf,   'Ramdisk.1');
+writeOut($flashdisk_buf, 'Flashdisk.1');
+
+my($jffs2_block) = jffs2Block();
+
+writeOut($jffs2_block x 24, 'Flashdisk.myjffs2');
+
+writeOut(packImage($redboot_buf, $sysconf_buf, $kernel_buf, $ramdisk_buf, $flashdisk_buf), 'FirmwareImage');
+
