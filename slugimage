@@ -534,6 +534,69 @@ sub buildPartitionTable {
     return;
 }
 
+sub writeOutFirmware {
+    my($filename, @partitions) = @_;
+
+    # Clear the image to start.
+    my $image_buf = "";
+
+    map {
+
+	# We can only write a partition if it has an offset, a size, and some data to write.
+	if (defined $_->{'offset'} and defined $_->{'size'} and defined $_->{'data'}) {
+
+	    # Keep track of the end of the image.
+	    my $end_point = length($image_buf);
+
+	    # If the next partition is well past the end of the current image, then pad it.
+	    if ($_->{'offset'} > $end_point) {
+		$image_buf .= padBytes("", $_->{'offset'} - $end_point);
+		$quiet or printf("Padded %s before <%s> in \"%s\"\n",
+				 ((length($image_buf) - $end_point) >= $block_size ?
+				  sprintf("%d blocks", numBlocks(length($image_buf) - $end_point)) :
+				  sprintf("0x%05X bytes", length($image_buf) - $end_point)),
+				 $_->{'name'}, $filename);
+	    }
+
+	    # If the next parition is before the end of the current image, then rewind.
+	    elsif ($_->{'offset'} < $end_point) {
+		$debug and printf("Rewound 0x%05X bytes before <%s> in \"%s\"\n",
+				  $end_point - $_->{'offset'}, $_->{'name'}, $filename);
+		if (($end_point - $_->{'offset'}) >= $block_size) {
+		    die "Allocation error: rewound a full block or more ...\n";
+		}
+	    }
+
+	    # Splice the data into the image at the appropriate place, padding as required.
+	    substr($image_buf, $_->{'offset'}, $_->{'size'},
+		   $_->{'header'} ?
+		   padBytes(pack("N4",length($_->{'data'})).$_->{'data'}, $_->{'size'}) :
+		   padBytes($_->{'data'}, $_->{'size'}));
+	    
+	    # Keep the user appraised ...
+	    $quiet or printf("Wrote %s (0x%08X to 0x%08X) from <%s> into \"%s\"\n",
+			     ($_->{'size'} >= $block_size ?
+			      sprintf("%d blocks", numBlocks($_->{'size'})) :
+			      sprintf("0x%05X bytes", $_->{'size'})),
+			     $_->{'offset'}, $_->{'offset'}+$_->{'size'}, $_->{'name'}, $filename);
+	}
+
+	# If we are not able to write a partition, then give debug information about why.
+	else {
+	    $debug and printf("Skipping <%s> (%s)\n", $_->{'name'},
+			      (not defined $_->{'offset'}) ? "no offset defined" :
+			      ((not defined $_->{'size'}) ? "no size defined" :
+			       "no data available"));
+	}
+
+    } @partitions;
+
+    # Write the image to the specified file.
+    writeOut($image_buf, $filename);
+
+    return;
+}
+
 # checkPartitionTable: sanity check partition table - for testing but might evolve into setting @partitions
 #    so that we can write out jffs2 partitions from a read image
 #    currently not nearly paranoid enough
@@ -560,60 +623,6 @@ sub checkPartitionTable {
     } until $done;
 }
 
-
-sub writeOutFirmware {
-    my($filename, @partitions) = @_;
-
-    my $image_buf = "";
-
-    map {
-
-	if (defined $_->{'offset'} and defined $_->{'size'} and defined $_->{'data'}) {
-
-	    my $end_point = length($image_buf);
-
-	    if ($_->{'offset'} > $end_point) {
-		$image_buf .= padBytes("", $_->{'offset'} - $end_point);
-		$quiet or printf("Padded %s before <%s> in \"%s\"\n",
-				 ((length($image_buf) - $end_point) >= $block_size ?
-				  sprintf("%d blocks", numBlocks(length($image_buf) - $end_point)) :
-				  sprintf("0x%05X bytes", length($image_buf) - $end_point)),
-				 $_->{'name'}, $filename);
-	    }
-	    elsif ($_->{'offset'} < $end_point) {
-		$debug and printf("Rewound 0x%05X bytes before <%s> in \"%s\"\n",
-				  $end_point - $_->{'offset'}, $_->{'name'}, $filename);
-		if (($end_point - $_->{'offset'}) >= $block_size) {
-		    die "Allocation error: rewound a full block or more ...\n";
-		}
-	    }
-
-	    substr($image_buf, $_->{'offset'}, $_->{'size'},
-		   $_->{'header'} ?
-		   padBytes(pack("N4",length($_->{'data'})).$_->{'data'}, $_->{'size'}) :
-		   padBytes($_->{'data'}, $_->{'size'}));
-	    
-	    $quiet or printf("Wrote %s (0x%08X to 0x%08X) from <%s> into \"%s\"\n",
-			     ($_->{'size'} >= $block_size ?
-			      sprintf("%d blocks", numBlocks($_->{'size'})) :
-			      sprintf("0x%05X bytes", $_->{'size'})),
-			     $_->{'offset'}, $_->{'offset'}+$_->{'size'}, $_->{'name'}, $filename);
-	}
-	else {
-	    $debug and printf("Skipping <%s> (%s)\n", $_->{'name'},
-			      (not defined $_->{'offset'}) ? "no offset defined" :
-			      ((not defined $_->{'size'}) ? "no size defined" :
-			       "no data available"));
-	}
-
-    } @partitions;
-
-    writeOut($image_buf, $filename);
-
-    return;
-}
-
-
 sub printPartitions {
     my(@partitions) = @_;
 
@@ -638,10 +647,6 @@ sub printPartitions {
 }
 
 sub defaultPartitions {
-
-    # %%% I would like to add all the little "pseudo-partitions" to this table (like the RedBootTrailer, the
-    # %%% LastBlock slugmark stuff, and the payload.  Then they can be handled in the code just like any other
-    # %%% partition.  We probably need some sort of flag to indicate a parition that has a length header.
 
     return ({'name'=>'RedBoot',           'file'=>'RedBoot',
 	     'offset'=>0x00000000,        'size'=>0x00040000,
