@@ -667,10 +667,10 @@ sub defaultPartitions {
 	     'offset'=>0x007e0000,        'size'=>0x00020000,
 	     'variable'=>0, 'header'=>0,  'pseudo'=>0, 'data'=>undef},
 	    {'name'=>'SlugMark',          'file'=>undef,
-	     'offset'=>0x007e0f08,        'size'=>0x00000008,
-	     'variable'=>0, 'header'=>0,  'pseudo'=>1, 'data'=>'sLuGmArK'},
-	    {'name'=>'CmdLine',           'file'=>undef,
-	     'offset'=>0x007e0f10,        'size'=>0x000000f0,
+	     'offset'=>0x007e0f02,        'size'=>0x00000006,
+	     'variable'=>0, 'header'=>0,  'pseudo'=>1, 'data'=>'sLuGmK'},
+	    {'name'=>'SwitchArgs',        'file'=>undef,
+	     'offset'=>0x007e0f08,        'size'=>0x000000f8,
 	     'variable'=>0, 'header'=>0,  'pseudo'=>1, 'data'=>undef},
 	    {'name'=>'Payload',	          'file'=>undef,
 	     'offset'=>0x007e1000,        'size'=>0x0001eff0,
@@ -686,7 +686,7 @@ sub defaultPartitions {
 
 my(@partitions) = defaultPartitions();
 
-my($unpack, $pack, $input, $output, $redboot, $kernel, $sysconf, $ramdisk, $fisdir, $payload, $trailer, $ethaddr, $cmdline);
+my($unpack, $pack, $input, $output, $redboot, $kernel, $sysconf, $ramdisk, $fisdir, $payload, $trailer, $ethaddr);
 
 if (!GetOptions("d|debug"      => \$debug,
 		"q|quiet"      => \$quiet,
@@ -702,7 +702,6 @@ if (!GetOptions("d|debug"      => \$debug,
 		"l|payload=s"  => \$payload,
 		"t|trailer=s"  => \$trailer,
 		"e|ethaddr=s"  => \$ethaddr,
-		"c|cmdline=s"  => \$cmdline,
 		) or (not defined $pack and not defined $unpack)) {
     print "Usage: slugimage <options>\n";
     print "\n";
@@ -720,7 +719,6 @@ if (!GetOptions("d|debug"      => \$debug,
     print "  [-l|--payload]  <file>		Input/Output Payload filename\n";
     print "  [-t|--trailer]  <file>		Input/Output Trailer filename\n";
     print "  [-e|--ethaddr]  <AABBCCDDEEFF>	Set the Ethernet address\n";
-    print "  [-c|--cmdline]  <cmdline>		Set the Kernel command line args\n";
 
     # TODO: document --ramdisk syntax
 
@@ -743,17 +741,6 @@ if (defined $ethaddr) {
 		die "Invalid ethernet address specification: '".$ethaddr."'\n";
 	    }
 	    $_->{'data'} = pack("H12", $ethaddr);
-	}
-    } @partitions;
-}
-
-if (defined $cmdline) {
-    map {
-	if ($_->{'name'} eq 'CmdLine') {
-	    if (length($cmdline) >= $_->{'size'}) {
-		die "Command line is too long (".$_->{'size'}." chars maximum)\n";
-	    }
-	    $_->{'data'} = $cmdline."\0";
 	}
     } @partitions;
 }
