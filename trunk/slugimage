@@ -9,10 +9,10 @@ use warnings;
 
 use Getopt::Long;
 
-sub ffPad {
+sub padBytes {
     my($data,$total_len) = @_;
 
-    my($pad_char) = pack("C",0xff);
+    my($pad_char) = pack("C",0x00);
     my($pad_len) = $total_len - length($data);
 
     return $data . $pad_char x $pad_len;
@@ -27,7 +27,7 @@ sub paddedSize {
 }
 
 sub jffs2Block {
-    return ffPad(pack("N3", 0x19852003, 0x0000000c, 0xf060dc98), 0x00020000);
+    return padBytes(pack("N3", 0x19852003, 0x0000000c, 0xf060dc98), 0x00020000);
 }
 
 sub writeOut {
@@ -209,7 +209,7 @@ sub writeImage {
 	my $pointer = length($image_buf);
 
 	if ($_->{'offset'} > $pointer) {
-	    $image_buf .= ffPad("", $_->{'offset'} - $pointer);
+	    $image_buf .= padBytes("", $_->{'offset'} - $pointer);
 	    print("Padded ", sprintf("0x%08X", length($image_buf) - $pointer), " bytes forward in \"", $filename, "\"\n");
 	    $pointer = length($image_buf);
 	}
@@ -221,18 +221,18 @@ sub writeImage {
 
 	if ($_->{'name'} eq "Kernel") {
 	    $_->{'size'} = 0x100000;
-	    $image_buf .= ffPad(pack("N4",length($_->{'data'})).$_->{'data'},
+	    $image_buf .= padBytes(pack("N4",length($_->{'data'})).$_->{'data'},
 				$_->{'size'});
 	}
 	elsif ($_->{'name'} eq "Ramdisk") {
-	    $image_buf .= ffPad(pack("N4",length($_->{'data'})).$_->{'data'},
+	    $image_buf .= padBytes(pack("N4",length($_->{'data'})).$_->{'data'},
 				paddedSize($_->{'size'}));
 	}
 	elsif ($_->{'name'} eq "Trailer") {
 	    $image_buf .= $_->{'data'};
 	}
 	else {
-	    $image_buf .= ffPad($_->{'data'}, paddedSize(length($_->{'data'})));
+	    $image_buf .= padBytes($_->{'data'}, paddedSize(length($_->{'data'})));
 	}
 
 	print("Wrote ", sprintf("0x%08X", length($image_buf) - $pointer), " bytes from <",
@@ -263,7 +263,7 @@ sub defaultPartitions {
 # call @partitions = defaultPartitions(), populate filenames with command line args
 # pass \@partitions to some func which reads the files and populates the data values
 # pass \@partitions to layoutPartitions() to get fully populated (start and size values)
-# some func, possibly layoutPartitions() needs to call ffPad() on the various partition data
+# some func, possibly layoutPartitions() needs to call padBytes() on the various partition data
 # with the correct size value (which should have been calculated by layoutPartitions() with the
 # help of fixed partition lengths and for variable length partitions, paddedSize()
 # then write out the image, somewhere in there passing \@partitions to lastBlock() which in turn
