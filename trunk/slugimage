@@ -314,7 +314,10 @@ sub writeOutFirmwareParts {
 			      length($_->{'data'}), $_->{'name'}, $_->{'file'});
 	}
 	else {
-	    $quiet or print "Skipping ", $_->{'name'}, "\n";
+	    $quiet or printf("Skipping %s (%s)\n", $_->{'name'},
+			     (not defined $_->{'file'}) ?
+			     "no filename specified" :
+			     "no data to write");
 	}
 
     } @partitions;
@@ -442,12 +445,6 @@ sub layoutPartitions {
 		    die "Ran out of flash space in <", $_->{'name'}, ">\n";
 		}
 	    }
-
-	    # Keep the user appraised ...
-	    $quiet or printf("Created <%s> (%s)\n", $_->{'name'},
-			     ($_->{'size'} >= $block_size ?
-			      sprintf("%d blocks", numBlocks($_->{'size'})) :
-			      sprintf("0x%05X bytes", $_->{'size'})));
 	}
 
 	# Then handle known partitions, and allocate them.
@@ -458,7 +455,8 @@ sub layoutPartitions {
 		$_->{'start'} = $flash_start + $_->{'offset'};
 
 		# Keep the user appraised ...
-		$quiet or printf("Allocated <%s> from 0x%08X to 0x%08X (%s)\n",
+		$quiet or printf("%s <%s> from 0x%08X to 0x%08X (%s)\n",
+				 $_->{'pseudo'} ? "Inserted" : "Allocated",
 				 $_->{'name'}, $_->{'start'}, $_->{'start'} + $_->{'size'},
 				 ($_->{'size'} >= $block_size ?
 				  sprintf("%d blocks", numBlocks($_->{'size'})) :
@@ -471,7 +469,8 @@ sub layoutPartitions {
 		$_->{'offset'} = $_->{'start'} - $flash_start;
 
 		# Keep the user appraised ...
-		$quiet or printf("Allocated <%s> from 0x%08X to 0x%08X (%s)\n",
+		$quiet or printf("%s <%s> from 0x%08X to 0x%08X (%s)\n",
+				 $_->{'pseudo'} ? "Inserted" : "Allocated",
 				  $_->{'name'}, $_->{'start'}, $_->{'start'} + $_->{'size'},
 				 ($_->{'size'} >= $block_size ?
 				  sprintf("%d blocks", numBlocks($_->{'size'})) :
@@ -522,7 +521,7 @@ sub buildPartitionTable {
 			      sprintf("0x%05X bytes", $_->{'size'})));
 	}
 	else {
-	    $quiet or print "No table entry for <", $_->{'name'}, ">\n";
+	    $quiet or print "No table entry required for <", $_->{'name'}, ">\n";
 	}
 
     } @partitions;
@@ -597,7 +596,10 @@ sub writeOutFirmware {
 			     $_->{'offset'}, $_->{'offset'}+$_->{'size'}, $_->{'name'}, $filename);
 	}
 	else {
-	    $quiet or print "Skipping ", $_->{'name'}, "\n";
+	    $quiet or printf("Skipping %s (%s)\n", $_->{'name'},
+			     (not defined $_->{'offset'}) ? "no offset defined" :
+			     ((not defined $_->{'size'}) ? "no size defined" :
+			      "no data available"));
 	}
 
     } @partitions;
@@ -642,9 +644,6 @@ sub defaultPartitions {
 	     'variable'=>0, 'header'=>0,  'pseudo'=>0, 'data'=>undef},
 	    {'name'=>'MAC Address',       'file'=>undef,
 	     'offset'=>0x0003ffb0,        'size'=>0x00000006,
-	     'variable'=>0, 'header'=>0,  'pseudo'=>1, 'data'=>undef},
-	    {'name'=>'RedBoot Trailer',   'file'=>undef,
-	     'offset'=>0x0003ffb6,        'size'=>0x0000004a,
 	     'variable'=>0, 'header'=>0,  'pseudo'=>1, 'data'=>undef},
 	    {'name'=>'SysConf',           'file'=>'SysConf',
 	     'offset'=>0x00040000,        'size'=>0x00020000,
