@@ -208,15 +208,17 @@ sub spliceFirmwarePartitions {
     # return 0 here if no partition table in FIS directory
     return if not $partition_table;
 
-    # %%% What we really want to do here is change the values of any variable partitions.
-    # %%% Then we can add stuff to the default partition table to have it written out (like
-    # %%% the RedBootTrailer, the LastBlock stuff and the payload.
-
     my @new_partitions = parsePartitionTable($partition_table);
 
     my($partition_count) = 0;
     my($splice) = 0;
     map {
+
+	# Skip pseudo partitions.
+	while (($partition_count < scalar(@$partitions_ref)) and
+	       $partitions_ref->[$partition_count]->{'pseudo'}) {
+	    $partition_count++;
+	}
 
 	# If we are in a variable area, and we haven't reached the end of it,
 	# then splice in another partition for use by the later code.
@@ -314,10 +316,10 @@ sub writeOutFirmwareParts {
 			      length($_->{'data'}), $_->{'name'}, $_->{'file'});
 	}
 	else {
-	    $quiet or printf("Skipping %s (%s)\n", $_->{'name'},
-			     (not defined $_->{'file'}) ?
-			     "no filename specified" :
-			     "no data to write");
+	    $debug and printf("Skipping %s (%s)\n", $_->{'name'},
+			      (not defined $_->{'file'}) ?
+			      "no filename specified" :
+			      "no data to write");
 	}
 
     } @partitions;
@@ -594,10 +596,10 @@ sub writeOutFirmware {
 			     $_->{'offset'}, $_->{'offset'}+$_->{'size'}, $_->{'name'}, $filename);
 	}
 	else {
-	    $quiet or printf("Skipping %s (%s)\n", $_->{'name'},
-			     (not defined $_->{'offset'}) ? "no offset defined" :
-			     ((not defined $_->{'size'}) ? "no size defined" :
-			      "no data available"));
+	    $debug and printf("Skipping %s (%s)\n", $_->{'name'},
+			      (not defined $_->{'offset'}) ? "no offset defined" :
+			      ((not defined $_->{'size'}) ? "no size defined" :
+			       "no data available"));
 	}
 
     } @partitions;
