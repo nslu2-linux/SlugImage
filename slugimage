@@ -164,21 +164,25 @@ sub readInFirmwareParts {
 	    # Slurp in the data
 	    $_->{'data'} = <FILE>;
 
+	    # Keep track of the actual size.
+	    my $size;
+
+	    # For the Ramdisk, we need to account for the length header.
+	    if ($_->{'name'} eq 'Ramdisk') {
+		$size = paddedSize(16 + length($_->{'data'}));
+	    }
+	    else {
+		$size = paddedSize(length($_->{'data'}));
+	    }
+
 	    # If the partition does not have a fixed size, the calculate the size.
 	    if (not defined $_->{'size'}) {
-
-		# For the Ramdisk, we need to account for the length header.
-		if ($_->{'name'} eq 'Ramdisk') {
-		    $_->{'size'} = paddedSize(16 + length($_->{'data'}));
-		}
-		else {
-		    $_->{'size'} = paddedSize(length($_->{'data'}));
-		}
+		$_->{'size'} = $size;
 	    }
 
 	    # Keep the user appraised ...
 	    print("Read ", sprintf("0x%08X", length($_->{'data'})), " bytes from \"",
-		  $_->{'file'}, "\" into <", $_->{'name'}, ">\n");
+		  $_->{'file'}, "\" into <", $_->{'name'}, "> (", numBlocks($size), " blocks)\n");
 	}
 	else {
 #	    print "Skipping ", $_->{'name'}, "\n";
@@ -213,6 +217,11 @@ sub layoutPartitions {
 
     map {
 
+	# If this is the last variable size partition, then fill the rest of the space.
+	if ($_->{'name'} eq $partitions[-3]->{'name'}) {
+	    $_->{'size'} = paddedSize($partitions[-2]->{'offset'} + $flash_start - $pointer);
+	}
+
 	# Handle requests for partition creation first.
 	if (defined $_->{'size'} and not defined $_->{'data'} and ($_->{'name'} ne "FIS directory")) {
 
@@ -222,8 +231,8 @@ sub layoutPartitions {
 		$_->{'size'} = paddedSize($partitions[-2]->{'offset'} + $flash_start - $pointer);
 	    }
 
-	    # Create an empty jffs2 partition of the requested size.
-	    $_->{'data'} = jffs2Block() x numBlocks($_->{'size'});
+	    # Create an empty partition of the requested size.
+	    $_->{'data'} = padBytes("", $_->{'size'});
 
 	    # Check to make sure that the requested size is not too large.
 	    if (($pointer + $_->{'size'}) > ($flash_start + $partitions[-2]->{'offset'})) {
@@ -244,7 +253,8 @@ sub layoutPartitions {
 
 		# Keep the user appraised ...
 		print("Allocated <", $_->{'name'}, "> from ", sprintf("0x%08X", $_->{'start'}),
-		      " to ", sprintf("0x%08X", $_->{'start'} + $_->{'size'}), "\n");
+		      " to ", sprintf("0x%08X", $_->{'start'} + $_->{'size'}), " (",
+		      numBlocks($_->{'size'}), " blocks)\n");
 	    }
 
 	    # If offset is not defined, then calculate it.
@@ -254,7 +264,8 @@ sub layoutPartitions {
 
 		# Keep the user appraised ...
 		print("Allocated <", $_->{'name'}, "> from ", sprintf("0x%08X", $_->{'start'}),
-		      " to ", sprintf("0x%08X", $_->{'start'} + $_->{'size'}), "\n");
+		      " to ", sprintf("0x%08X", $_->{'start'} + $_->{'size'}), " (",
+		      numBlocks($_->{'size'}), " blocks)\n");
 	    }
 
 	    # Check to make sure we have not run out of room.
@@ -350,7 +361,7 @@ sub writeOutFirmware {
 #		print("Offset is ", sprintf("0x%08X", $_->{'offset'}), ", pointer is ",
 #		      , sprintf("0x%08X", $pointer), "\n");
 		$image_buf = substr($image_buf, 0, $_->{'offset'});
-		print("Rewound ", sprintf("0x%08X", $pointer - $_->{'offset'}), " bytes before <",
+		print("Rewound ", ($pointer - $_->{'offset'}), " bytes before <",
 		      $_->{'name'}, "> in \"", $filename, "\"\n");
 		$pointer = length($image_buf);
 	    }
@@ -367,12 +378,19 @@ sub writeOutFirmware {
 		$image_buf .= $_->{'data'};
 	    }
 	    else {
-		$image_buf .= padBytes($_->{'data'}, paddedSize(length($_->{'data'})));
+		$image_buf .= padBytes($_->{'data'}, $_->{'size'});
 	    }
 	    
-	    print("Wrote ", sprintf("0x%08X", length($image_buf) - $pointer), " bytes (",
-		  sprintf("0x%08X", $pointer), " to ", sprintf("0x%08X", length($image_buf)), ") from <",
-		  $_->{'name'}, "> into \"", $filename, "\"\n");
+	    if ($_->{'name'} eq 'Trailer') {
+		print("Wrote ", (length($image_buf) - $pointer), " bytes (",
+		      sprintf("0x%08X", $pointer), " to ", sprintf("0x%08X", length($image_buf)), ") from <",
+		      $_->{'name'}, "> into \"", $filename, "\"\n");
+	    }
+	    else {
+		print("Wrote ", numBlocks(length($image_buf) - $pointer), " blocks (",
+		      sprintf("0x%08X", $pointer), " to ", sprintf("0x%08X", length($image_buf)), ") from <",
+		      $_->{'name'}, "> into \"", $filename, "\"\n");
+	    }
 	}
 	else {
 	    print "Skipping ", $_->{'name'}, "\n";
@@ -499,8 +517,8 @@ if (defined $ramdisk) {
 	    my %entry = %{$partitions[3]};
 
 	    # Parse the mapping
-	    ($_ =~ m/^([^:]+):([^:]+)$/) or die "Invalid syntax in --ramdisk\n";
-	    $entry{'name'} = $1; $entry{'file'} = $2;
+	    ($_ =~ m/^([^:]+):([^:]+)(:([^:]+))?$/) or die "Invalid syntax in --ramdisk\n";
+	    $entry{'name'} = $1; $entry{'file'} = $2; my $size = $4;
 
 	    # If the mapping is not for the ramdisk, then undefine its attributes
 	    if ($entry{'name'} ne 'Ramdisk') {
@@ -511,9 +529,14 @@ if (defined $ramdisk) {
 
 	    # Support specification of the number of blocks for empty jffs2
 	    if ($entry{'file'} =~ m/^[0-9]+$/) {
-		my($block_size) = 0x00020000;
-		$entry{'size'} = $entry{'file'} * $block_size;
+		$size = $entry{'file'};
 		$entry{'file'} = undef;
+	    }
+
+	    # If the user has specified a size, then respect their wishes
+	    if (defined $size) {
+		my($block_size) = 0x00020000;
+		$entry{'size'} = $size * $block_size;
 	    }
 
 	    \%entry;
@@ -573,6 +596,8 @@ if ($pack) {
 	parsePartitionTable($lastblock);
     }
     
+    die "Output filename must be specified\n" unless defined $output;
+
     writeOutFirmware($output, @partitions);
 
 }
