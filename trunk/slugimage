@@ -34,6 +34,14 @@ sub numBlocks {
     return (($data_len - 1) / $block_size) + 1;
 }
 
+sub partitionEntry {
+    my($name, $flash_base, $size) = @_;
+
+    my($zero_long) = 0x0000;
+
+    return pack("a16N5x212N2",$name,$flash_base,$zero_long,$size,$zero_long,$zero_long,$zero_long,$zero_long);
+}
+
 sub jffs2Block {
     return padBytes(pack("N3", 0x19852003, 0x0000000c, 0xf060dc98), 0x00020000);
 }
@@ -48,39 +56,6 @@ sub writeOut {
     close FILE or die "Can't close file $filename: $!\n";
 }
 
-sub partitionEntry {
-    my($name, $flash_base, $size) = @_;
-
-    my($zero_long) = 0x0000;
-
-    return pack("a16N5x212N2",$name,$flash_base,$zero_long,$size,$zero_long,$zero_long,$zero_long,$zero_long);
-}
-
-sub buildPartitionTable {
-    my(@partitions) = @_;
-
-    my $partition_data = "";
-
-    map {
-
-	if (defined $_->{'offset'} and defined $_->{'size'}) {
-
-	    $partition_data .= partitionEntry($_->{'name'}, $_->{'offset'}, $_->{'size'});
-
-	    # If this is the FIS directory, then write the partition table data into it.
-	    if ($_->{'name'} eq "FIS directory") {
-		$_->{'data'} = $partition_data;
-	    }
-	}
-	else {
-	    print "Skipping ", $_->{'name'}, "\n";
-	}
-
-    } @partitions;
-
-    return;
-}
-
 sub trailerData {
     my($product_id)       = 0x0001;
     my($protocol_id)      = 0x0000;
@@ -90,74 +65,6 @@ sub trailerData {
     my($unknown2)         = 0x00b9;
 
     return pack("n4a6n",$product_id,$protocol_id,$firmware_version,$unknown1,$magic_number,$unknown2);
-}
-
-# layoutPartitions : this function must be ugly - it needs to verify RedBoot, SysConf, Kernel, Ramdisk, and
-#     FIS directory partitions exist, are in the correct order, and do not have more data than can fit in
-#     their lengths (fixed for all but Ramdisk, which has a minimum length of one block).
-#     If Rootdisk and/or Userdisk exist, it must also verify that their block padded lengths are not
-#     too great for the available space.
-# input : an array of hashes, some of which are populated with data
-# output: same reference with start and size (partition not data) also populated. this populated structure
-#         can then be passed to buildPartitionTable() to generate the actual partition table data
-sub layoutPartitions {
-    my(@partitions) = @_;
-
-    my($flash_start) = 0x50000000;
-    my($flash_len)   = 0x00800000;
-    my($block_size)  = 0x00020000;
-
-    #
-    # here we go through the $partitions array ref and fill in all the values
-    #
-
-    my $pointer = $flash_start;
-
-    map {
-
-	if (defined $_->{'size'} and not defined $_->{'data'} and ($_->{'name'} ne "FIS directory")) {
-
-	    if ($_->{'size'} == 0) {
-		$_->{'size'} = $partitions[-2]->{'offset'} + $flash_start - $pointer;
-	    }
-
-	    $_->{'data'} = jffs2Block() x numBlocks($_->{'size'});
-	    $_->{'size'} = length($_->{'data'});
-
-	    if (($pointer + $_->{'size'}) > ($flash_start + $partitions[-2]->{'offset'})) {
-		die "Ran out of flash space in <", $_->{'name'}, ">\n";
-	    }
-
-	    print "Created a ", numBlocks($_->{'size'}), " block jffs2 image in ", $_->{'name'}, "\n";
-
-	}
-
-	if (defined $_->{'size'}) {
-
-	    # Determine the start and offset of the current partition.
-	    if (defined $_->{'offset'}) {
-		$_->{'start'} = $flash_start + $_->{'offset'};
-		print("Allocated <", $_->{'name'}, "> from ", sprintf("0x%08X", $_->{'start'}),
-		      " to ", sprintf("0x%08X", $_->{'start'} + $_->{'size'}), "\n");
-	    }
-	    else {
-		$_->{'start'} = $pointer;
-		$_->{'offset'} = $_->{'start'} - $flash_start;
-		print("Allocated <", $_->{'name'}, "> from ", sprintf("0x%08X", $_->{'start'}),
-		      " to ", sprintf("0x%08X", $_->{'start'} + $_->{'size'}), "\n");
-	    }
-
-	    if (($_->{'start'} + $_->{'size'}) > ($flash_start + $flash_len)) {
-		die "Ran out of flash space in <", $_->{'name'}, ">\n";
-	    }
-
-	    $pointer = $_->{'start'} + paddedSize($_->{'size'});
-
-	}
-
-    } @partitions;
-
-    return;
 }
 
 sub readInFirmware {
@@ -240,6 +147,101 @@ sub readInFirmwareParts {
     return;
 }
 
+# layoutPartitions : this function must be ugly - it needs to verify RedBoot, SysConf, Kernel, Ramdisk, and
+#     FIS directory partitions exist, are in the correct order, and do not have more data than can fit in
+#     their lengths (fixed for all but Ramdisk, which has a minimum length of one block).
+#     If Rootdisk and/or Userdisk exist, it must also verify that their block padded lengths are not
+#     too great for the available space.
+# input : an array of hashes, some of which are populated with data
+# output: same reference with start and size (partition not data) also populated. this populated structure
+#         can then be passed to buildPartitionTable() to generate the actual partition table data
+sub layoutPartitions {
+    my(@partitions) = @_;
+
+    my($flash_start) = 0x50000000;
+    my($flash_len)   = 0x00800000;
+    my($block_size)  = 0x00020000;
+
+    #
+    # here we go through the $partitions array ref and fill in all the values
+    #
+
+    my $pointer = $flash_start;
+
+    map {
+
+	if (defined $_->{'size'} and not defined $_->{'data'} and ($_->{'name'} ne "FIS directory")) {
+
+	    if ($_->{'size'} == 0) {
+		$_->{'size'} = $partitions[-2]->{'offset'} + $flash_start - $pointer;
+	    }
+
+	    $_->{'data'} = jffs2Block() x numBlocks($_->{'size'});
+	    $_->{'size'} = length($_->{'data'});
+
+	    if (($pointer + $_->{'size'}) > ($flash_start + $partitions[-2]->{'offset'})) {
+		die "Ran out of flash space in <", $_->{'name'}, ">\n";
+	    }
+
+	    print("Created a ", numBlocks($_->{'size'}), " block jffs2 image in ", $_->{'name'},
+		  " from ", sprintf("0x%08X", $pointer),
+		  " to ", sprintf("0x%08X", $pointer + $_->{'size'}), "\n");
+
+	}
+
+	if (defined $_->{'size'}) {
+
+	    # Determine the start and offset of the current partition.
+	    if (defined $_->{'offset'}) {
+		$_->{'start'} = $flash_start + $_->{'offset'};
+		print("Allocated <", $_->{'name'}, "> from ", sprintf("0x%08X", $_->{'start'}),
+		      " to ", sprintf("0x%08X", $_->{'start'} + $_->{'size'}), "\n");
+	    }
+	    else {
+		$_->{'start'} = $pointer;
+		$_->{'offset'} = $_->{'start'} - $flash_start;
+		print("Allocated <", $_->{'name'}, "> from ", sprintf("0x%08X", $_->{'start'}),
+		      " to ", sprintf("0x%08X", $_->{'start'} + $_->{'size'}), "\n");
+	    }
+
+	    if (($_->{'start'} + $_->{'size'}) > ($flash_start + $flash_len)) {
+		die "Ran out of flash space in <", $_->{'name'}, ">\n";
+	    }
+
+	    $pointer = $_->{'start'} + paddedSize($_->{'size'});
+
+	}
+
+    } @partitions;
+
+    return;
+}
+
+sub buildPartitionTable {
+    my(@partitions) = @_;
+
+    my $partition_data = "";
+
+    map {
+
+	if (defined $_->{'offset'} and defined $_->{'size'}) {
+
+	    $partition_data .= partitionEntry($_->{'name'}, $_->{'offset'}, $_->{'size'});
+
+	    # If this is the FIS directory, then write the partition table data into it.
+	    if ($_->{'name'} eq "FIS directory") {
+		$_->{'data'} = $partition_data;
+	    }
+	}
+	else {
+	    print "Skipping ", $_->{'name'}, "\n";
+	}
+
+    } @partitions;
+
+    return;
+}
+
 sub writeOutFirmware {
     my($filename, @partitions) = @_;
 
@@ -254,13 +256,14 @@ sub writeOutFirmware {
 	    if ($_->{'offset'} > $pointer) {
 		$image_buf .= padBytes("", $_->{'offset'} - $pointer);
 		my($block_size) = 0x00020000;
-		use integer;
-		my($blocks) = ((length($image_buf) - $pointer) / $block_size);
+		my($blocks) = numBlocks(length($image_buf) - $pointer);
 		print("Padded ", sprintf("%d", $blocks), " blocks before <",
 		      $_->{'name'}, "> in \"", $filename, "\"\n");
 		$pointer = length($image_buf);
 	    }
 	    elsif ($_->{'offset'} < $pointer) {
+		print("Offset is ", sprintf("0x%08X", $_->{'offset'}), ", pointer is ",
+		      , sprintf("0x%08X", $pointer), "\n");
 		$image_buf = substr($image_buf, 0, $_->{'offset'});
 		print("Rewound ", sprintf("0x%08X", $pointer - $_->{'offset'}), " bytes before <",
 		      $_->{'name'}, "> in \"", $filename, "\"\n");
