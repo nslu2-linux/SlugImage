@@ -248,6 +248,18 @@ sub defaultPartitions {
 
 }
 
+#
+# flow should go something like this:
+# call @partitions = defaultPartitions(), populate filenames with command line args
+# pass \@partitions to some func which reads the files and populates the data values
+# pass \@partitions to layoutPartitions() to get fully populated (start and size values)
+# some func, possibly layoutPartitions() needs to call ffPad() on the various partition data
+# with the correct size value (which should have been calculated by layoutPartitions() with the
+# help of fixed partition lengths and for variable length partitions, paddedSize()
+# then write out the image, somewhere in there passing \@partitions to lastBlock() which in turn
+# passes it to newpartitionTable (which should be renamed to partitionTable and replace it)
+#
+
 my(@partitions) = defaultPartitions();
 
 my($pack, $unpack, $firmware, $redboot, $kernel, $sysconf, $ramdisk, $trailer, $macaddr, $debug);
