@@ -183,32 +183,40 @@ sub layoutPartitions {
 		die "Ran out of flash space in <", $_->{'name'}, ">\n";
 	    }
 
-	    print("Created a ", numBlocks($_->{'size'}), " block jffs2 image in ", $_->{'name'},
-		  " from ", sprintf("0x%08X", $pointer),
-		  " to ", sprintf("0x%08X", $pointer + $_->{'size'}), "\n");
+	    print("Created <", $_->{'name'}, "> (", numBlocks($_->{'size'}), " blocks)\n");
 
 	}
 
 	if (defined $_->{'size'}) {
 
+	    my $size = $_->{'size'};
+
+	    if ($_->{'name'} eq "Kernel") {
+		$size = 0x100000;
+	    }
+
+	    if ($_->{'name'} eq 'Ramdisk') {
+		$size += 16;
+	    }
+
 	    # Determine the start and offset of the current partition.
 	    if (defined $_->{'offset'}) {
 		$_->{'start'} = $flash_start + $_->{'offset'};
 		print("Allocated <", $_->{'name'}, "> from ", sprintf("0x%08X", $_->{'start'}),
-		      " to ", sprintf("0x%08X", $_->{'start'} + $_->{'size'}), "\n");
+		      " to ", sprintf("0x%08X", $_->{'start'} + $size), "\n");
 	    }
 	    else {
 		$_->{'start'} = $pointer;
 		$_->{'offset'} = $_->{'start'} - $flash_start;
 		print("Allocated <", $_->{'name'}, "> from ", sprintf("0x%08X", $_->{'start'}),
-		      " to ", sprintf("0x%08X", $_->{'start'} + $_->{'size'}), "\n");
+		      " to ", sprintf("0x%08X", $_->{'start'} + $size), "\n");
 	    }
 
-	    if (($_->{'start'} + $_->{'size'}) > ($flash_start + $flash_len)) {
+	    if (($_->{'start'} + $size) > ($flash_start + $flash_len)) {
 		die "Ran out of flash space in <", $_->{'name'}, ">\n";
 	    }
 
-	    $pointer = $_->{'start'} + paddedSize($_->{'size'});
+	    $pointer = $_->{'start'} + paddedSize($size);
 
 	}
 
@@ -255,15 +263,13 @@ sub writeOutFirmware {
 
 	    if ($_->{'offset'} > $pointer) {
 		$image_buf .= padBytes("", $_->{'offset'} - $pointer);
-		my($block_size) = 0x00020000;
-		my($blocks) = numBlocks(length($image_buf) - $pointer);
-		print("Padded ", sprintf("%d", $blocks), " blocks before <",
-		      $_->{'name'}, "> in \"", $filename, "\"\n");
+		print("Padded ", sprintf("%d", numBlocks(length($image_buf) - $pointer)),
+		      " blocks before <", $_->{'name'}, "> in \"", $filename, "\"\n");
 		$pointer = length($image_buf);
 	    }
 	    elsif ($_->{'offset'} < $pointer) {
-		print("Offset is ", sprintf("0x%08X", $_->{'offset'}), ", pointer is ",
-		      , sprintf("0x%08X", $pointer), "\n");
+#		print("Offset is ", sprintf("0x%08X", $_->{'offset'}), ", pointer is ",
+#		      , sprintf("0x%08X", $pointer), "\n");
 		$image_buf = substr($image_buf, 0, $_->{'offset'});
 		print("Rewound ", sprintf("0x%08X", $pointer - $_->{'offset'}), " bytes before <",
 		      $_->{'name'}, "> in \"", $filename, "\"\n");
@@ -286,7 +292,8 @@ sub writeOutFirmware {
 		$image_buf .= padBytes($_->{'data'}, paddedSize(length($_->{'data'})));
 	    }
 	    
-	    print("Wrote ", sprintf("0x%08X", length($image_buf) - $pointer), " bytes from <",
+	    print("Wrote ", sprintf("0x%08X", length($image_buf) - $pointer), " bytes (",
+		  sprintf("0x%08X", $pointer), " to ", sprintf("0x%08X", length($image_buf)), ") from <",
 		  $_->{'name'}, "> into \"", $filename, "\"\n");
 	}
 	else {
