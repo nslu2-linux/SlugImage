@@ -49,11 +49,11 @@ sub jffs2Block {
 sub writeOut {
     my($data, $filename) = @_;
 
-    open FILE,">$filename" or die "Can't open file $filename: $!\n";
+    open FILE,">$filename" or die "Can't open file \"$filename\": $!\n";
 
     if(defined($data)){ print FILE $data;}
 
-    close FILE or die "Can't close file $filename: $!\n";
+    close FILE or die "Can't close file \"$filename\": $!\n";
 }
 
 sub trailerData {
@@ -73,14 +73,14 @@ sub readInFirmware {
     my($firmware_buf);
     my($total_length)   = 0x800000;
 
-    open FILE,$filename or die "Can't find firmware image $filename: $!\n";
+    open FILE,$filename or die "Can't find firmware image \"$filename\": $!\n";
 
-    read FILE,$firmware_buf,$total_length or die "Can't read $total_length bytes from file $filename: $!\n";
+    read FILE,$firmware_buf,$total_length or die "Can't read $total_length bytes from \"$filename\": $!\n";
 
     # Read the parts of the firmware file into the partitions table.
     map {
 
-	if (defined $_->{'offset'} and defined $_->{'size'}) {
+	if (defined $_->{'offset'} and defined $_->{'size'} and ($_->{'name'} ne "FIS directory")) {
 
 	    # Grab the whole partition, using the maximum size.
 	    $_->{'data'} = substr($firmware_buf, $_->{'offset'}, $_->{'size'});
@@ -97,7 +97,7 @@ sub readInFirmware {
 
     } @partitions;
 
-    close FILE or die "Can't close $filename: $!\n";
+    close FILE or die "Can't close \"$filename\": $!\n";
 
     return;
 }
@@ -132,7 +132,7 @@ sub readInFirmwareParts {
 
 	my $file = $_->{'file'};
 	if (defined $file) {
-	    open FILE,$file or die "Can't find firmware part $file: $!\n";
+	    open FILE,$file or die "Can't find firmware part \"$file\": $!\n";
 	    $_->{'data'} = <FILE>;
 	    $_->{'size'} = length($_->{'data'});
 	    print("Read ", sprintf("0x%08X", length($_->{'data'})), " bytes from \"",
@@ -187,7 +187,7 @@ sub layoutPartitions {
 
 	}
 
-	if (defined $_->{'size'}) {
+	if (defined $_->{'size'} and ($_->{'name'} ne "Trailer")) {
 
 	    my $size = $_->{'size'};
 
