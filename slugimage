@@ -114,7 +114,7 @@ sub lastBlock {
     return ffPad(partitionTable($ramdisk_len), $block_size - length($trailer_data)) . $trailer_data;
 }
 
-# layoutPartitions : this function must be ugly - it needs to verify Redboot, SysConf, Kernel, Ramdisk, and
+# layoutPartitions : this function must be ugly - it needs to verify RedBoot, SysConf, Kernel, Ramdisk, and
 #     FIS directory partitions exist, are in the correct order, and do not have more data than can fit in
 #     their lengths (fixed for all but Ramdisk, which has a minimum length of one block).
 #     If Rootdisk and/or Userdisk exist, it must also verify that their block padded lengths are not
@@ -141,7 +141,7 @@ sub layoutPartitions {
     my($lastblock_len)   = $blocksize;
 
     # template codifies partition order and start and/or size values when they are fixed
-    my(@template) = ({'name'=>'Redboot', 'start'=>$redboot_start, 'size'=>$redboot_len},
+    my(@template) = ({'name'=>'RedBoot', 'start'=>$redboot_start, 'size'=>$redboot_len},
 		     {'name'=>'SysConf', 'start'=>$sysconf_start, 'size'=>$sysconf_len},
 		     {'name'=>'Kernel',  'start'=>$kernel_start,  'size'=>$kernel_len},
 		     {'name'=>'Ramdisk', 'start'=>$ramdisk_start},
@@ -263,7 +263,7 @@ writeOut($jffs2_block x 24, 'Flashdisk.myjffs2');
 
 writeOut(packImage($redboot_buf, $sysconf_buf, $kernel_buf, $ramdisk_buf, $flashdisk_buf), 'FirmwareImage');
 
-my(@partitions) = ({'name'=>'Redboot', 'start'=>0x50000000,'size'=>0x00040000,'data'=>'abcd'},
+my(@partitions) = ({'name'=>'RedBoot', 'start'=>0x50000000,'size'=>0x00040000,'data'=>'abcd'},
 		   {'name'=>'SysConf', 'start'=>0x50040000,'size'=>0x00020000,'data'=>'efgh'},
 		   {'name'=>'Kernel',  'start'=>0x50060000,'size'=>0x00100000,'data'=>'ijkl'},
 		   {'name'=>'Ramdisk', 'start'=>0x50160000,'size'=>0x00020000,'data'=>'mnop'},
