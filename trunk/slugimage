@@ -172,6 +172,7 @@ sub readInFirmwareParts {
 		}
 	    }
 
+	    # Keep the user appraised ...
 	    print("Read ", sprintf("0x%08X", length($_->{'data'})), " bytes from \"",
 		  $_->{'file'}, "\" into <", $_->{'name'}, ">\n");
 	}
@@ -213,30 +214,39 @@ sub layoutPartitions {
 
 	    # A zero size is a request to fill all available space.
 	    if ($_->{'size'} == 0) {
+		# Grab the start of the FIS directory, and fill up to there.
 		$_->{'size'} = paddedSize($partitions[-2]->{'offset'} + $flash_start - $pointer);
 	    }
 
+	    # Create an empty jffs2 partition of the requested size.
 	    $_->{'data'} = jffs2Block() x numBlocks($_->{'size'});
 
+	    # Check to make sure that the requested size is not too large.
 	    if (($pointer + $_->{'size'}) > ($flash_start + $partitions[-2]->{'offset'})) {
 		die "Ran out of flash space in <", $_->{'name'}, ">\n";
 	    }
 
+	    # Keep the user appraised ...
 	    print("Created <", $_->{'name'}, "> (", numBlocks($_->{'size'}), " blocks)\n");
 
 	}
 
+	# The handle known partitions, and allocate them.
 	if (defined $_->{'size'} and ($_->{'name'} ne "Trailer")) {
 
 	    # Determine the start and offset of the current partition.
 	    if (defined $_->{'offset'}) {
 		$_->{'start'} = $flash_start + $_->{'offset'};
+
+		# Keep the user appraised ...
 		print("Allocated <", $_->{'name'}, "> from ", sprintf("0x%08X", $_->{'start'}),
 		      " to ", sprintf("0x%08X", $_->{'start'} + $_->{'size'}), "\n");
 	    }
 	    else {
 		$_->{'start'} = $pointer;
 		$_->{'offset'} = $_->{'start'} - $flash_start;
+
+		# Keep the user appraised ...
 		print("Allocated <", $_->{'name'}, "> from ", sprintf("0x%08X", $_->{'start'}),
 		      " to ", sprintf("0x%08X", $_->{'start'} + $_->{'size'}), "\n");
 	    }
