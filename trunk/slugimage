@@ -53,45 +53,23 @@ sub partitionEntry {
 }
 
 sub newpartitionTable {
-    my($partitions) = @_;
+    my(@partitions) = @_;
 
-    my($partition, $field, $partition_data);
-    for $partition (@$partitions){
-	print "---------------------------\n";
-	for $field (sort keys %$partition){
-	    print $field,'=>',$partition->{$field},"\n";
-	}
-	$partition_data .= partitionEntry($partition->{'name'}, $partition->{'start'}, $partition->{'size'});
-    }
+    my $partition_data = "";
+
     print "---------------------------\n";
-    return $partition_data;
-}
 
-sub partitionTable {
-    my($ramdisk_len) = @_;
+    map {
 
-    my($ramdisk_start, $ramdisk_padded_size, $flashdisk_start, $flashdisk_padded_size);
+	for my $field (sort keys %{$_}){
+	    print $field,'=>',$_->{$field},"\n";
+	}
+	
+	$partition_data .= partitionEntry($_->{'name'}, $_->{'offset'}, $_->{'size'});
 
-    $ramdisk_padded_size = ramdiskPaddedSize($ramdisk_len);
-    $ramdisk_start = 0x00160000;
-    $flashdisk_start = $ramdisk_start + $ramdisk_padded_size;
-    $flashdisk_padded_size = flashdiskPaddedSize($ramdisk_len);
+    } @partitions;
 
-    my(@partitions) = (['RedBoot',      0x00000000,      0x00040000],
-		       ['SysConf',      0x00040000,      0x00020000],
-		       ['Kernel',       0x00060000,      0x00100000],
-		       ['Ramdisk',      $ramdisk_start,  $ramdisk_padded_size],
-		       ['Flashdisk',    $flashdisk_start,$flashdisk_padded_size],
-		       ['FIS directory',0x007e0000,      0x00020000]);
-
-    my($flash_start) = 0x50000000;
-    my($partition_data);
-
-    foreach(@partitions){
-	printf("%s\t\t0x%lx\t0x%lx\n",@$_[0],@$_[1] + $flash_start,@$_[2]);
-
-	$partition_data .= partitionEntry(@$_[0],@$_[1] + $flash_start,@$_[2]);
-    }
+    print "---------------------------\n";
     return $partition_data;
 }
 
@@ -157,44 +135,48 @@ sub layoutPartitions {
     return $partitions;
 }
 
-sub readInFirmware{
-    my($filename, $partitions) = @_;
+sub readInFirmware {
+    my($filename, @partitions) = @_;
 
     my($firmware_buf);
-
     my($total_length)   = 0x800000;
-
-    my($redboot_length) = 0x40000;
-    my($redboot_start)  = 0x0;
-
-    my($sysconf_length) = 0x20000;
-    my($sysconf_start)  = $redboot_start + $redboot_length;
-
-    my($kernel_length)  = 0x100000;
-    my($kernel_start)   = $sysconf_start + $sysconf_length;
-
-    my($ramdisk_length) = 0x6A0000;
-    my($ramdisk_start)  = $kernel_start + $kernel_length;
 
     open FILE,$filename or die "can't find firmware image $filename: $!\n";
 
-    read FILE,$firmware_buf,$total_length or die "can't read $total_length bytes of file $filename: $!\n";
+    read FILE,$firmware_buf,$total_length or die "can't read $total_length bytes from file $filename: $!\n";
 
-    my($redboot_buf) = substr($firmware_buf, $redboot_start, $redboot_length);
-    print "RedBoot is ",length($redboot_buf)," bytes long\n";
+    # Read the parts of the firmware file into the partitions table.
+    map {
 
-    my($sysconf_buf) = substr($firmware_buf, $sysconf_start, $sysconf_length);
-    print "SysConf is ",length($sysconf_buf)," bytes long\n";
+	# Grab the whole partition, using the maximum size.
+	$_->{'data'} = substr($firmware_buf, $_->{'offset'}, $_->{'size'});
 
-    my($kernel_buf)  = substr($firmware_buf, $kernel_start,  $kernel_length);
-    $kernel_buf  = substr($kernel_buf, 16, unpack("N",$kernel_buf));
-    print "Kernel is ",length($kernel_buf)," bytes long\n";
+	# For those partitions which can be smaller, read the length and truncate the data.
+	if (($_->{'name'} eq 'Kernel') or ($_->{'name'} eq 'Ramdisk')) {
+	    $_->{'size'} = unpack("N", $_->{'data'});
+	    $_->{'data'} = substr($_->{'data'}, 16, $_->{'size'});
+	}
 
-    my($ramdisk_buf) = substr($firmware_buf, $ramdisk_start, $ramdisk_length);
-    $ramdisk_buf = substr($ramdisk_buf, 16, unpack("N",$ramdisk_buf));
-    print "Ramdisk is ",length($ramdisk_buf)," bytes long\n";
+	print $_->{'name'}, " is ", length($_->{'data'}), " bytes long\n";
 
-    return($redboot_buf, $sysconf_buf, $kernel_buf, $ramdisk_buf);
+    } @partitions;
+
+    return;
+}
+
+sub writeOutFirmwareParts {
+    my(@partitions) = @_;
+
+    # Read the parts of the firmware file into the partitions table.
+    map {
+
+	if (defined $_->{'data'}) {
+	    writeOut($_->{'data'}, $_->{'file'});
+	}
+
+    } @partitions;
+
+    return;
 }
 
 sub readInFirmwareParts {
@@ -238,13 +220,14 @@ sub writeOut {
 
 sub defaultPartitions {
 
-    return ({'name'=>'RedBoot',      'start'=>0x50000000,'size'=>0x00040000,'data'=>'abcd'},
-	    {'name'=>'SysConf',      'start'=>0x50040000,'size'=>0x00020000,'data'=>'efgh'},
-	    {'name'=>'Kernel',       'start'=>0x50060000,'size'=>0x00100000,'data'=>'ijkl'},
-	    {'name'=>'Ramdisk',      'start'=>0x50160000,'size'=>0x006a0000,'data'=>'mnop'},
-#           {'name'=>'Rootdisk',     'start'=>0x50180000,'size'=>0x00100000,'data'=>'qrst'},
-#           {'name'=>'Userdisk',     'start'=>0x50280000,'size'=>0x00560000,'data'=>'uvwx'},
-	    {'name'=>'FIS directory','start'=>0x507e0000,'size'=>0x00020000,'data'=>'yz12'});
+    return ({'name'=>'RedBoot',      'file'=>'Redboot',   'offset'=>0x00000000,'size'=>0x00040000,'data'=>'abcd'},
+	    {'name'=>'SysConf',      'file'=>'SysConf',   'offset'=>0x00040000,'size'=>0x00020000,'data'=>'efgh'},
+	    {'name'=>'Kernel',       'file'=>'vmlinuz',   'offset'=>0x00060000,'size'=>0x00100000,'data'=>'ijkl'},
+	    {'name'=>'Ramdisk',      'file'=>'ramdisk.gz','offset'=>0x00160000,'size'=>0x006a0000,'data'=>'mnop'},
+#           {'name'=>'Rootdisk',     'offset'=>0x00180000,'size'=>0x00100000,'data'=>'qrst'},
+#           {'name'=>'Userdisk',     'offset'=>0x00280000,'size'=>0x00560000,'data'=>'uvwx'},
+	    {'name'=>'FIS directory','file'=>'SlugTail',  'offset'=>0x007e0000,'size'=>0x00020000,'data'=>'yz12'},
+	    );
 
 }
 
@@ -262,11 +245,11 @@ sub defaultPartitions {
 
 my(@partitions) = defaultPartitions();
 
-my($pack, $unpack, $firmware, $redboot, $kernel, $sysconf, $ramdisk, $trailer, $macaddr, $debug);
+my($pack, $unpack, $image, $redboot, $kernel, $sysconf, $ramdisk, $trailer, $macaddr, $debug);
 
 my $result = GetOptions("p|pack"      => \$pack,
 			"u|unpack"    => \$unpack,
-			"i|image=s"   => \$firmware,
+			"i|image=s"   => \$image,
 			"r|redboot=s" => \$redboot,
 			"k|kernel=s"  => \$kernel,
 			"s|sysconf=s" => \$sysconf,
@@ -276,25 +259,38 @@ my $result = GetOptions("p|pack"      => \$pack,
 			"d|debug"     => \$debug,
 			);
 
-# temporary
-$firmware ||= 'unslung-able-nslu2-20041111151629.img';
+# Go through the partition options, and set the names and files in @partitions
 
-# TODO: go through the partition options, and set the names and files in @partitions
-# ...
+if (defined $redboot) {
+    map { ($_->{'name'} eq 'RedBoot') && ($_->{'file'} = $redboot); } @partitions;
+}
+
+if (defined $kernel) {
+    map { ($_->{'name'} eq 'Kernel') && ($_->{'file'} = $kernel); } @partitions;
+}
+
+if (defined $sysconf) {
+    map { ($_->{'name'} eq 'SysConf') && ($_->{'file'} = $sysconf); } @partitions;
+}
+
+if (defined $ramdisk) {
+    map { ($_->{'name'} eq 'Ramdisk') && ($_->{'file'} = $ramdisk); } @partitions;
+}
+
+# Print out the partition table filenames
+if ($debug) {
+    map { if (defined $_->{'file'}) { print $_->{'name'}, " :\t", $_->{'file'}, "\n"; }; } @partitions;
+}
 
 if ($unpack) {
 
     # TODO: instead of returning the _buf variables, put the data in @partitions
-    my($redboot_buf, $sysconf_buf, $kernel_buf, $ramdisk_buf) = readInFirmware($firmware, \@partitions);
+    my $result = readInFirmware($image, @partitions);
 
-    print "there is space for a ",flashdiskPaddedSize(length($ramdisk_buf))," byte Flashdisk partition\n";
+    # print "there is space for a ",flashdiskPaddedSize(length($ramdisk_buf))," byte Flashdisk partition\n";
 
-    # TODO: loop through @partitions, and write out anything that has data to the filenames in @partitions
-    writeOut($redboot_buf, 'RedBoot');
-    writeOut($sysconf_buf, 'SysConf');
-    writeOut($kernel_buf,  'Kernel');
-    writeOut($ramdisk_buf, 'Ramdisk');
-    writeOut(lastBlock(length($ramdisk_buf)),'last_block0');
+    writeOutFirmwareParts(@partitions);
+
 }
 
 if ($debug) {
