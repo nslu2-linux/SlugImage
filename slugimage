@@ -274,18 +274,34 @@ my(@partitions) = defaultPartitions();
 
 my($pack, $unpack, $input, $output, $redboot, $kernel, $sysconf, $ramdisk, $trailer, $macaddr, $debug);
 
-my $result = GetOptions("d|debug"     => \$debug,
-			"p|pack"      => \$pack,
-			"u|unpack"    => \$unpack,
-			"i|input=s"   => \$input,
-			"o|output=s"  => \$output,
-			"b|redboot=s" => \$redboot,
-			"k|kernel=s"  => \$kernel,
-			"s|sysconf=s" => \$sysconf,
-			"r|ramdisk=s" => \$ramdisk,
-			"t|trailer=s" => \$trailer,
-			"m|macaddr=s" => \$macaddr,
-			);
+if (!GetOptions("d|debug"     => \$debug,
+		"p|pack"      => \$pack,
+		"u|unpack"    => \$unpack,
+		"i|input=s"   => \$input,
+		"o|output=s"  => \$output,
+		"b|redboot=s" => \$redboot,
+		"k|kernel=s"  => \$kernel,
+		"s|sysconf=s" => \$sysconf,
+		"r|ramdisk=s" => \$ramdisk,
+		"t|trailer=s" => \$trailer,
+		"m|macaddr=s" => \$macaddr,
+		) or (not defined $pack and not defined $unpack)) {
+    print "Usage: slugimage <options>\n";
+    print "\n";
+    print "  [-d|--debug]			Turn on debugging output\n";
+    print "  [-u|--unpack]			Unpack a firmware image\n";
+    print "  [-p|--pack]			Pack a firmware image\n";
+    print "  [-i|--input]   <file>		Input firmware image filename\n";
+    print "  [-o|--output]  <file>		Output firmware image filename\n";
+    print "  [-b|--redboot] <file>		Input/Output RedBoot filename\n";
+    print "  [-k|--kernel]  <file>		Input/Ouptut Kernel filename\n";
+    print "  [-s|--sysconf] <file>		Input/Output SysConf filename\n";
+    print "  [-r|--ramdisk] <file>		Input/Output Ramdisk filename(s)\n";
+    print "  [-t|--trailer] <file>		Input/Output Trailer filename\n";
+    print "  [-m|--macaddr] <MAC>		Set the MAC address in RedBoot\n";
+
+    exit 1;
+}
 
 # Go through the partition options, and set the names and files in @partitions
 if (defined $redboot) { map { ($_->{'name'} eq 'RedBoot') && ($_->{'file'} = $redboot); } @partitions; }
