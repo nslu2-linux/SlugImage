@@ -161,6 +161,8 @@ sub readInFirmware {
 
     } @partitions;
 
+    close FILE or die "can't close $filename: $!\n";
+
     return;
 }
 
@@ -215,7 +217,7 @@ sub writeOut {
 
     if(defined($data)){ print FILE $data;}
 
-    close FILE;
+    close FILE or die "can't close file $filename: $!\n";
 }
 
 sub defaultPartitions {
