@@ -42,6 +42,7 @@ use warnings;
 use Getopt::Long;
 
 my($debug) = 0;
+my($quiet) = 0;
 
 # Take $data, and pad it out to $total_len bytes, appending 0xff's.
 sub padBytes {
@@ -212,7 +213,7 @@ sub useDefaultPartitions {
 		    $_->{'size'} = paddedSize($size);
 		}
 	    }
-	    $debug and printf("Read 0x%08X bytes into <%s>\n", length($_->{'data'}), $_->{'name'});
+	    $quiet or printf("Read 0x%08X bytes into <%s>\n", length($_->{'data'}), $_->{'name'});
 	}
     } @$partitions_ref;
 }
@@ -281,11 +282,11 @@ sub writeOutFirmwareParts {
 	# We can only write if 'data' and 'file' are defined.
 	if (defined $_->{'data'} and defined $_->{'file'}) {
 	    writeOut($_->{'data'}, $_->{'file'});
-	    $debug and printf("Wrote 0x%08X bytes from <%s> into \"%s\"\n",
+	    $quiet or printf("Wrote 0x%08X bytes from <%s> into \"%s\"\n",
 			      length($_->{'data'}), $_->{'name'}, $_->{'file'});
 	}
 	else {
-	    $debug and print "Skipping ", $_->{'name'}, "\n";
+	    $quiet or print "Skipping ", $_->{'name'}, "\n";
 	}
 
     } @partitions;
@@ -328,7 +329,7 @@ sub readInFirmwareParts {
 	    }
 
 	    # Keep the user appraised ...
-	    $debug and printf("Read 0x%08X bytes from \"%s\" into <%s> (%d blocks)\n",
+	    $quiet or printf("Read 0x%08X bytes from \"%s\" into <%s> (%d blocks)\n",
 			      length($_->{'data'}), $_->{'file'}, $_->{'name'}, numBlocks($size));
 	}
 	else {
@@ -338,7 +339,7 @@ sub readInFirmwareParts {
 		open PAYLOAD,$payload or die "Can't find payload \"$payload\": $!\n";
 		$_->{'payload_data'} = <PAYLOAD>;
 		close PAYLOAD or die "Can't close file \"$payload\": $!\n";
-		$debug and printf("Read 0x%08X bytes of payload data from \"$payload\"\n", length($_->{'payload_data'}));
+		$quiet or printf("Read 0x%08X bytes of payload data from \"$payload\"\n", length($_->{'payload_data'}));
 	    }
 	}
 
@@ -394,7 +395,7 @@ sub layoutPartitions {
 	    }
 
 	    # Keep the user appraised ...
-	    $debug and printf("Created <%s> (%d blocks)\n", $_->{'name'}, $_->{'size'});
+	    $quiet or printf("Created <%s> (%d blocks)\n", $_->{'name'}, $_->{'size'});
 	}
 
 	# The handle known partitions, and allocate them.
@@ -405,7 +406,7 @@ sub layoutPartitions {
 		$_->{'start'} = $flash_start + $_->{'offset'};
 
 		# Keep the user appraised ...
-		$debug and printf("Allocated <%s> from 0x%08X to 0x%08X (%d blocks)\n",
+		$quiet or printf("Allocated <%s> from 0x%08X to 0x%08X (%d blocks)\n",
 				  $_->{'name'}, $_->{'start'}, $_->{'start'} + $_->{'size'}, numBlocks($_->{'size'}));
 	    }
 
@@ -415,7 +416,7 @@ sub layoutPartitions {
 		$_->{'offset'} = $_->{'start'} - $flash_start;
 
 		# Keep the user appraised ...
-		$debug and printf("Allocated <%s> from 0x%08X to 0x%08X (%d blocks)\n",
+		$quiet or printf("Allocated <%s> from 0x%08X to 0x%08X (%d blocks)\n",
 				  $_->{'name'}, $_->{'start'}, $_->{'start'} + $_->{'size'}, numBlocks($_->{'size'}));
 	    }
 
@@ -457,6 +458,8 @@ sub buildPartitionTable {
 		    $_->{'data'} = padBytes($partition_data, $payload_offset) .
 			padBytes(pack("N4",length($_->{'payload_data'})).$_->{'payload_data'},
 				 $_->{'size'} - $payload_offset);
+		    $quiet or printf("Inserted 0x%08X bytes of payload data into <FIS directory>\n",
+				     length($_->{'payload_data'}));
 		}
 		else {
 		    $_->{'data'} = padBytes($partition_data, $_->{'size'});
@@ -464,7 +467,7 @@ sub buildPartitionTable {
 	    }
 	}
 	else {
-	    $debug and print "Skipping ", $_->{'name'}, "\n";
+	    $quiet or print "Skipping ", $_->{'name'}, "\n";
 	}
 
     } @partitions;
@@ -512,13 +515,13 @@ sub writeOutFirmware {
 
 	    if ($_->{'offset'} > $pointer) {
 		$image_buf .= padBytes("", $_->{'offset'} - $pointer);
-		$debug and printf("Padded %d blocks before <%s> in \"%s\"\n",
+		$quiet or printf("Padded %d blocks before <%s> in \"%s\"\n",
 				  numBlocks(length($image_buf) - $pointer), $_->{'name'}, $filename);
 		$pointer = length($image_buf);
 	    }
 	    elsif ($_->{'offset'} < $pointer) {
 		$image_buf = substr($image_buf, 0, $_->{'offset'});
-		$debug and printf("Rewound %d bytes before <%s> in \"%s\"\n",
+		$quiet or printf("Rewound %d bytes before <%s> in \"%s\"\n",
 				  $pointer - $_->{'offset'}, $_->{'name'}, $filename);
 		$pointer = length($image_buf);
 	    }
@@ -539,17 +542,17 @@ sub writeOutFirmware {
 	    }
 	    
 	    if ($_->{'name'} eq 'Trailer') {
-		$debug and printf("Wrote %d bytes (0x%08X to 0x%08X) from <%s> into \"%s\"\n",
+		$quiet or printf("Wrote %d bytes (0x%08X to 0x%08X) from <%s> into \"%s\"\n",
 				  length($image_buf) - $pointer, $pointer, length($image_buf), $_->{'name'}, $filename);
 	    }
 	    else {
-		$debug and printf("Wrote %d blocks (0x%08X to 0x%08X) from <%s> into \"%s\"\n",
+		$quiet or printf("Wrote %d blocks (0x%08X to 0x%08X) from <%s> into \"%s\"\n",
 				  numBlocks(length($image_buf) - $pointer), $pointer, length($image_buf),
 				  $_->{'name'}, $filename);
 	    }
 	}
 	else {
-	    $debug and print "Skipping ", $_->{'name'}, "\n";
+	    $quiet or print "Skipping ", $_->{'name'}, "\n";
 	}
 
     } @partitions;
@@ -617,6 +620,7 @@ my(@partitions) = defaultPartitions();
 my($unpack, $pack, $input, $output, $redboot, $kernel, $sysconf, $ramdisk, $fisdir, $trailer, $macaddr, $payload);
 
 if (!GetOptions("d|debug"      => \$debug,
+		"q|quiet"      => \$quiet,
 		"u|unpack"     => \$unpack,
 		"p|pack"       => \$pack,
 		"i|input=s"    => \$input,
@@ -633,6 +637,7 @@ if (!GetOptions("d|debug"      => \$debug,
     print "Usage: slugimage <options>\n";
     print "\n";
     print "  [-d|--debug]			Turn on debugging output\n";
+    print "  [-q|--quiet]			Turn off status messages\n";
     print "  [-u|--unpack]			Unpack a firmware image\n";
     print "  [-p|--pack]			Pack a firmware image\n";
     print "  [-i|--input]    <file>		Input firmware image filename\n";
