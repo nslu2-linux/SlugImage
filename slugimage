@@ -119,6 +119,9 @@ sub lastBlock {
 #     their lengths (fixed for all but Ramdisk, which has a minimum length of one block).
 #     If Rootdisk and/or Userdisk exist, it must also verify that their block padded lengths are not
 #     too great for the available space.
+# input : a reference to an array of hashes with only name and data populated
+# output: same reference with start and size (partition not data) also populated. this populated structure
+#         can then be passed to newpartitionTable() to generate the actual partition table data
 sub layoutPartitions {
     my($partitions) = @_;
 
@@ -138,7 +141,7 @@ sub layoutPartitions {
     my($lastblock_len)   = $blocksize;
 
     # template codifies partition order and start and/or size values when they are fixed
-    my($template) = ({'name'=>'Redboot', 'start'=>$redboot_start, 'size'=>$redboot_len},
+    my(@template) = ({'name'=>'Redboot', 'start'=>$redboot_start, 'size'=>$redboot_len},
 		     {'name'=>'SysConf', 'start'=>$sysconf_start, 'size'=>$sysconf_len},
 		     {'name'=>'Kernel',  'start'=>$kernel_start,  'size'=>$kernel_len},
 		     {'name'=>'Ramdisk', 'start'=>$ramdisk_start},
