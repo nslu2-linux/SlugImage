@@ -26,6 +26,14 @@ sub paddedSize {
     return (($data_len - 1) / $block_size) * $block_size + $block_size;
 }
 
+sub numBlocks {
+    my($data_len) = @_;
+
+    my($block_size) = 0x00020000;
+    use integer;
+    return (($data_len - 1) / $block_size) + 1;
+}
+
 sub jffs2Block {
     return padBytes(pack("N3", 0x19852003, 0x0000000c, 0xf060dc98), 0x00020000);
 }
@@ -33,11 +41,11 @@ sub jffs2Block {
 sub writeOut {
     my($data, $filename) = @_;
 
-    open FILE,">$filename" or die "can't open file $filename: $!\n";
+    open FILE,">$filename" or die "Can't open file $filename: $!\n";
 
     if(defined($data)){ print FILE $data;}
 
-    close FILE or die "can't close file $filename: $!\n";
+    close FILE or die "Can't close file $filename: $!\n";
 }
 
 sub partitionEntry {
@@ -55,11 +63,17 @@ sub buildPartitionTable {
 
     map {
 
-	$partition_data .= partitionEntry($_->{'name'}, $_->{'offset'}, $_->{'size'});
+	if (defined $_->{'offset'} and defined $_->{'size'}) {
 
-	# If this is the FIS directory, then write the partition table data into it.
-	if ($_->{'name'} eq "FIS directory") {
-	    $_->{'data'} = $partition_data;
+	    $partition_data .= partitionEntry($_->{'name'}, $_->{'offset'}, $_->{'size'});
+
+	    # If this is the FIS directory, then write the partition table data into it.
+	    if ($_->{'name'} eq "FIS directory") {
+		$_->{'data'} = $partition_data;
+	    }
+	}
+	else {
+	    print "Skipping ", $_->{'name'}, "\n";
 	}
 
     } @partitions;
@@ -89,8 +103,9 @@ sub trailerData {
 sub layoutPartitions {
     my(@partitions) = @_;
 
-    my($flash_start)   = 0x50000000;
-    my($flash_len)     = 0x00800000;
+    my($flash_start) = 0x50000000;
+    my($flash_len)   = 0x00800000;
+    my($block_size)  = 0x00020000;
 
     #
     # here we go through the $partitions array ref and fill in all the values
@@ -99,6 +114,23 @@ sub layoutPartitions {
     my $pointer = $flash_start;
 
     map {
+
+	if (defined $_->{'size'} and not defined $_->{'data'} and ($_->{'name'} ne "FIS directory")) {
+
+	    if ($_->{'size'} == 0) {
+		$_->{'size'} = $partitions[-2]->{'offset'} + $flash_start - $pointer;
+	    }
+
+	    $_->{'data'} = jffs2Block() x numBlocks($_->{'size'});
+	    $_->{'size'} = length($_->{'data'});
+
+	    if (($pointer + $_->{'size'}) > ($flash_start + $partitions[-2]->{'offset'})) {
+		die "Ran out of flash space in <", $_->{'name'}, ">\n";
+	    }
+
+	    print "Created a ", numBlocks($_->{'size'}), " block jffs2 image in ", $_->{'name'}, "\n";
+
+	}
 
 	if (defined $_->{'size'}) {
 
@@ -116,14 +148,11 @@ sub layoutPartitions {
 	    }
 
 	    if (($_->{'start'} + $_->{'size'}) > ($flash_start + $flash_len)) {
-		die "ran out of flash space during ", $_->{'name'}, "\n";
+		die "Ran out of flash space in <", $_->{'name'}, ">\n";
 	    }
 
 	    $pointer = $_->{'start'} + paddedSize($_->{'size'});
 
-	}
-	else {
-	    print "Skipping ", $_->{'name'}, "\n";
 	}
 
     } @partitions;
@@ -137,14 +166,14 @@ sub readInFirmware {
     my($firmware_buf);
     my($total_length)   = 0x800000;
 
-    open FILE,$filename or die "can't find firmware image $filename: $!\n";
+    open FILE,$filename or die "Can't find firmware image $filename: $!\n";
 
-    read FILE,$firmware_buf,$total_length or die "can't read $total_length bytes from file $filename: $!\n";
+    read FILE,$firmware_buf,$total_length or die "Can't read $total_length bytes from file $filename: $!\n";
 
     # Read the parts of the firmware file into the partitions table.
     map {
 
-	if (defined $_->{'file'} and defined $_->{'offset'} and defined $_->{'size'}) {
+	if (defined $_->{'offset'} and defined $_->{'size'}) {
 
 	    # Grab the whole partition, using the maximum size.
 	    $_->{'data'} = substr($firmware_buf, $_->{'offset'}, $_->{'size'});
@@ -161,7 +190,7 @@ sub readInFirmware {
 
     } @partitions;
 
-    close FILE or die "can't close $filename: $!\n";
+    close FILE or die "Can't close $filename: $!\n";
 
     return;
 }
@@ -169,14 +198,17 @@ sub readInFirmware {
 sub writeOutFirmwareParts {
     my(@partitions) = @_;
 
-    # Read the parts of the firmware file into the partitions table.
+    # Write out the parts of the firmware file.
     map {
 
-	if (defined $_->{'data'}) {
+	if (defined $_->{'data'} and defined $_->{'file'}) {
 	    writeOut($_->{'data'}, $_->{'file'});
 	    print("Wrote ", sprintf("0x%08X", length($_->{'data'})), " bytes from <",
 		  $_->{'name'}, "> into \"", $_->{'file'}, "\"\n");
 
+	}
+	else {
+#	    print "Skipping ", $_->{'name'}, "\n";
 	}
 
     } @partitions;
@@ -186,18 +218,21 @@ sub writeOutFirmwareParts {
 
 sub readInFirmwareParts {
     my(@partitions) = (@_);
-
+    
     undef $/; # we want to slurp
 
     map {
 
 	my $file = $_->{'file'};
 	if (defined $file) {
-	    open FILE,$file or die "can't find firmware part $file: $!\n";
+	    open FILE,$file or die "Can't find firmware part $file: $!\n";
 	    $_->{'data'} = <FILE>;
 	    $_->{'size'} = length($_->{'data'});
 	    print("Read ", sprintf("0x%08X", length($_->{'data'})), " bytes from \"",
 		  $_->{'file'}, "\" into <", $_->{'name'}, ">\n");
+	}
+	else {
+#	    print "Skipping ", $_->{'name'}, "\n";
 	}
 
     } @partitions;
@@ -205,49 +240,55 @@ sub readInFirmwareParts {
     return;
 }
 
-sub writeImage {
+sub writeOutFirmware {
     my($filename, @partitions) = @_;
 
     my $image_buf = "";
 
     map {
 
-	my $pointer = length($image_buf);
+	if (defined $_->{'offset'} and defined $_->{'size'} and defined $_->{'data'}) {
 
-	if ($_->{'offset'} > $pointer) {
-	    $image_buf .= padBytes("", $_->{'offset'} - $pointer);
-	    my($block_size) = 0x00020000;
-	    use integer;
-	    my($blocks) = ((length($image_buf) - $pointer) / $block_size);
-	    print("Padded ", sprintf("%d", $blocks), " blocks before <",
-		  $_->{'name'}, "> in \"", $filename, "\"\n");
-	    $pointer = length($image_buf);
-	}
-	elsif ($_->{'offset'} < $pointer) {
-	    $image_buf = substr($image_buf, 0, $_->{'offset'});
-	    print("Rewound ", sprintf("0x%08X", $pointer - $_->{'offset'}), " bytes before <",
-		  $_->{'name'}, "> in \"", $filename, "\"\n");
-	    $pointer = length($image_buf);
-	}
+	    my $pointer = length($image_buf);
 
-	if ($_->{'name'} eq "Kernel") {
-	    $_->{'size'} = 0x100000;
-	    $image_buf .= padBytes(pack("N4",length($_->{'data'})).$_->{'data'},
-				$_->{'size'});
-	}
-	elsif ($_->{'name'} eq "Ramdisk") {
-	    $image_buf .= padBytes(pack("N4",length($_->{'data'})).$_->{'data'},
-				paddedSize($_->{'size'}));
-	}
-	elsif ($_->{'name'} eq "Trailer") {
-	    $image_buf .= $_->{'data'};
+	    if ($_->{'offset'} > $pointer) {
+		$image_buf .= padBytes("", $_->{'offset'} - $pointer);
+		my($block_size) = 0x00020000;
+		use integer;
+		my($blocks) = ((length($image_buf) - $pointer) / $block_size);
+		print("Padded ", sprintf("%d", $blocks), " blocks before <",
+		      $_->{'name'}, "> in \"", $filename, "\"\n");
+		$pointer = length($image_buf);
+	    }
+	    elsif ($_->{'offset'} < $pointer) {
+		$image_buf = substr($image_buf, 0, $_->{'offset'});
+		print("Rewound ", sprintf("0x%08X", $pointer - $_->{'offset'}), " bytes before <",
+		      $_->{'name'}, "> in \"", $filename, "\"\n");
+		$pointer = length($image_buf);
+	    }
+
+	    if ($_->{'name'} eq "Kernel") {
+		$_->{'size'} = 0x100000;
+		$image_buf .= padBytes(pack("N4",length($_->{'data'})).$_->{'data'},
+				       $_->{'size'});
+	    }
+	    elsif ($_->{'name'} eq "Ramdisk") {
+		$image_buf .= padBytes(pack("N4",length($_->{'data'})).$_->{'data'},
+				       paddedSize($_->{'size'}));
+	    }
+	    elsif ($_->{'name'} eq "Trailer") {
+		$image_buf .= $_->{'data'};
+	    }
+	    else {
+		$image_buf .= padBytes($_->{'data'}, paddedSize(length($_->{'data'})));
+	    }
+	    
+	    print("Wrote ", sprintf("0x%08X", length($image_buf) - $pointer), " bytes from <",
+		  $_->{'name'}, "> into \"", $filename, "\"\n");
 	}
 	else {
-	    $image_buf .= padBytes($_->{'data'}, paddedSize(length($_->{'data'})));
+	    print "Skipping ", $_->{'name'}, "\n";
 	}
-
-	print("Wrote ", sprintf("0x%08X", length($image_buf) - $pointer), " bytes from <",
-	      $_->{'name'}, "> into \"", $filename, "\"\n");
 
     } @partitions;
 
@@ -288,12 +329,11 @@ sub defaultPartitions {
 
 my(@partitions) = defaultPartitions();
 
-my($unpack, $pack, $jffs2gen, $input, $output, $redboot, $kernel, $sysconf, $ramdisk, $trailer, $macaddr, $debug);
+my($unpack, $pack, $input, $output, $redboot, $kernel, $sysconf, $ramdisk, $trailer, $macaddr, $debug);
 
 if (!GetOptions("d|debug"      => \$debug,
 		"u|unpack"     => \$unpack,
 		"p|pack"       => \$pack,
-		"j|jffs2gen=i" => \$jffs2gen,
 		"i|input=s"    => \$input,
 		"o|output=s"   => \$output,
 		"b|redboot=s"  => \$redboot,
@@ -302,13 +342,12 @@ if (!GetOptions("d|debug"      => \$debug,
 		"r|ramdisk=s"  => \$ramdisk,
 		"t|trailer=s"  => \$trailer,
 		"m|macaddr=s"  => \$macaddr,
-		) or (not defined $jffs2gen and not defined $pack and not defined $unpack)) {
+		) or (not defined $pack and not defined $unpack)) {
     print "Usage: slugimage <options>\n";
     print "\n";
     print "  [-d|--debug]			Turn on debugging output\n";
     print "  [-u|--unpack]			Unpack a firmware image\n";
     print "  [-p|--pack]			Pack a firmware image\n";
-    print "  [-j|--jffs2gen] <size>		Generate an empty JFFS2 image\n";
     print "  [-i|--input]    <file>		Input firmware image filename\n";
     print "  [-o|--output]   <file>		Output firmware image filename\n";
     print "  [-b|--redboot]  <file>		Input/Output RedBoot filename\n";
@@ -318,19 +357,10 @@ if (!GetOptions("d|debug"      => \$debug,
     print "  [-t|--trailer]  <file>		Input/Output Trailer filename\n";
     print "  [-m|--macaddr]  <MAC>		Set the MAC address in RedBoot\n";
 
+    # TODO: document --ramdisk syntax
+
     exit 1;
 }
-
-if ($jffs2gen) {
-
-    my($jffs2_block) = jffs2Block();
-
-    writeOut($jffs2_block x $jffs2gen, $output);
-    print "Wrote $jffs2gen blocks to \"$output\"\n";
-
-    exit 0;
-}
-
 
 # Go through the partition options, and set the names and files in @partitions
 if (defined $redboot) { map { ($_->{'name'} eq 'RedBoot') && ($_->{'file'} = $redboot); } @partitions; }
@@ -355,7 +385,7 @@ if (defined $ramdisk) {
 	    my %entry = %{$partitions[3]};
 
 	    # Parse the mapping
-	    ($_ =~ m/^([^:]+):([^:]+)$/) or die "invalid syntax in --ramdisk\n";
+	    ($_ =~ m/^([^:]+):([^:]+)$/) or die "Invalid syntax in --ramdisk\n";
 	    $entry{'name'} = $1; $entry{'file'} = $2;
 
 	    # If the mapping is not for the ramdisk, then undefine its attributes
@@ -364,16 +394,27 @@ if (defined $ramdisk) {
 		$entry{'size'} = undef;
 		$entry{'data'} = undef;
 	    }
+
+	    # Support specification of the number of blocks for empty jffs2
+	    if ($entry{'file'} =~ m/^[0-9]+$/) {
+		my($block_size) = 0x00020000;
+		$entry{'size'} = $entry{'file'} * $block_size;
+		$entry{'file'} = undef;
+	    }
+
 	    \%entry;
 
 	} @mappings);
     }
 }
 
+# Read in the firmware image
+if ($input) {
+    my $result = readInFirmware($input, @partitions);
+}
+
 # Unpack the firmware if requested
 if ($unpack) {
-
-    my $result = readInFirmware($input, @partitions);
 
     writeOutFirmwareParts(@partitions);
 
@@ -383,12 +424,13 @@ if ($unpack) {
 if ($pack) {
 
     my $result = readInFirmwareParts(@partitions);
-
+    
     layoutPartitions(@partitions);
 
     buildPartitionTable(@partitions);
 
-    writeImage($output, @partitions);
+    writeOutFirmware($output, @partitions);
+
 }
 
 exit 0;
