@@ -250,7 +250,7 @@ sub defaultPartitions {
 
 my(@partitions) = defaultPartitions();
 
-my($pack, $unpack, $firmware, $redboot, $kernel, $sysconf, $ramdisk, $trailer, $macaddr);
+my($pack, $unpack, $firmware, $redboot, $kernel, $sysconf, $ramdisk, $trailer, $macaddr, $debug);
 
 my $result = GetOptions("p|pack"      => \$pack,
 			"u|unpack"    => \$unpack,
@@ -261,6 +261,7 @@ my $result = GetOptions("p|pack"      => \$pack,
 			"r|ramdisk=s" => \$ramdisk,
 			"t|trailer=s" => \$trailer,
 			"m|macaddr=s" => \$macaddr,
+			"d|debug"     => \$debug,
 			);
 
 # temporary
@@ -284,23 +285,28 @@ if ($unpack) {
     writeOut(lastBlock(length($ramdisk_buf)),'last_block0');
 }
 
-# TODO: instead of returning the _buf variables, put the data in @partitions
-my($flashdisk_buf);
-($redboot_buf, $sysconf_buf, $kernel_buf, $ramdisk_buf, $flashdisk_buf) = readInFirmwareParts();
+if ($debug) {
 
-writeOut($redboot_buf,   'RedBoot.1');
-writeOut($sysconf_buf,   'SysConf.1');
-writeOut($kernel_buf,    'Kernel.1');
-writeOut($ramdisk_buf,   'Ramdisk.1');
-writeOut($flashdisk_buf, 'Flashdisk.1');
+    # TODO: instead of returning the _buf variables, put the data in @partitions
+    my ($redboot_buf, $sysconf_buf, $kernel_buf, $ramdisk_buf, $flashdisk_buf) = readInFirmwareParts();
 
-my($jffs2_block) = jffs2Block();
+    writeOut($redboot_buf,   'RedBoot.1');
+    writeOut($sysconf_buf,   'SysConf.1');
+    writeOut($kernel_buf,    'Kernel.1');
+    writeOut($ramdisk_buf,   'Ramdisk.1');
+    writeOut($flashdisk_buf, 'Flashdisk.1');
 
-writeOut($jffs2_block x 24, 'Flashdisk.myjffs2');
+    my($jffs2_block) = jffs2Block();
 
-# TODO: pass @partitions to packImage
-writeOut(packImage($redboot_buf, $sysconf_buf, $kernel_buf, $ramdisk_buf, $flashdisk_buf), 'FirmwareImage');
+    writeOut($jffs2_block x 24, 'Flashdisk.myjffs2');
+}
 
-newpartitionTable(\@partitions);
+if ($pack) {
 
+    my ($redboot_buf, $sysconf_buf, $kernel_buf, $ramdisk_buf, $flashdisk_buf) = readInFirmwareParts();
 
+    newpartitionTable(\@partitions);
+
+    # TODO: pass @partitions to packImage
+    writeOut(packImage($redboot_buf, $sysconf_buf, $kernel_buf, $ramdisk_buf, $flashdisk_buf), 'FirmwareImage');
+}
