@@ -259,6 +259,11 @@ sub writeImage {
 
 sub defaultPartitions {
 
+    # Note that other routines make assumptions that this table will stay in the current order, with
+    # new partitions only being added where the current Ramdisk partition exists.
+    # In particular, the Ramdisk partition must stay at index 3, and the partition at the end of the
+    # Ramdisk/Rootdisk/Userdis partitions must stay at index -2.
+
     return ({'name'=>'RedBoot',      'file'=>'Redboot',   'offset'=>0x00000000,'size'=>0x00040000,'data'=>undef},
 	    {'name'=>'SysConf',      'file'=>'SysConf',   'offset'=>0x00040000,'size'=>0x00020000,'data'=>undef},
 	    {'name'=>'Kernel',       'file'=>'vmlinuz',   'offset'=>0x00060000,'size'=>0x00100000,'data'=>undef},
