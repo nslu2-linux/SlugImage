@@ -724,7 +724,6 @@ if (defined $ethaddr) {
 		die "Invalid ethernet address specification: '".$ethaddr."'\n";
 	    }
 	    $_->{'data'} = pack("H12", $ethaddr);
-	    printf("ethaddr is \'%s\'\n", $_->{'data'});
 	}
     } @partitions;
 }
