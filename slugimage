@@ -130,7 +130,10 @@ sub parsePartitionTable {
 
     # Loop through the fixed size partition table entries, and store the entries in @partitions.
     while ($fields_ref = parsePartitionEntry(substr($partition_table, $partition_count * $entry_len, $entry_len))) {
-	$debug and printf("Found <%s> at 0x%08X (0x%08X bytes)\n", @$fields_ref);
+	$debug and printf("Found <%s> at 0x%08X (%s)\n", $fields_ref->[0], $fields_ref->[1],
+			  ($fields_ref->[2] >= $block_size ?
+			   sprintf("%d blocks", numBlocks($fields_ref->[2])) :
+			   sprintf("0x%05X bytes", $fields_ref->[2])));
 	$partitions[$partition_count++] = $fields_ref;
     }
     return(@partitions);
@@ -217,12 +220,15 @@ sub spliceFirmwarePartitions {
 	# Skip pseudo partitions.
 	while (($partition_count < scalar(@$partitions_ref)) and
 	       $partitions_ref->[$partition_count]->{'pseudo'}) {
+	    $debug and printf("Skipped <%s> (pseudo partition)\n", $partitions_ref->[$partition_count]->{'name'});
 	    $partition_count++;
 	}
 
 	# If we are in a variable area, and we haven't reached the end of it,
 	# then splice in another partition for use by the later code.
 	if ($splice and ($partitions_ref->[$partition_count]->{'name'} ne $_->[0])) {
+	    $debug and printf("Splicing new partition <%s> before <%s>\n",
+			      $_->[0], $partitions_ref->[$partition_count]->{'name'});
 	    splice(@{$partitions_ref}, $partition_count, 0, ({'name' => "",'variable'=>1,'header'=>0}));
 	}
 
@@ -233,6 +239,11 @@ sub spliceFirmwarePartitions {
 
 	    # Only override the filename if the partition name is not set or doesn't match
 	    if ($partition->{'name'} ne $_->[0]) {
+
+		if (length($partition->{'name'})) {
+		    $debug and printf("Overwriting <%s> with <%s>\n", $partitions_ref->[$partition_count]->{'name'});
+		}
+
 		$partition->{'name'} = $_->[0];
 		$partition->{'file'} = $_->[0];
 	    }
@@ -240,6 +251,12 @@ sub spliceFirmwarePartitions {
 	    # Set the offset and size based on the real partition table
 	    $partition->{'offset'} = $_->[1];
 	    $partition->{'size'}   = $_->[2];
+
+	    $debug and printf("Locating <%s> at 0x%08X (%s)\n",
+			      $partition->{'name'}, $partition->{'offset'},
+			      ($partition->{'size'} >= $block_size ?
+			       sprintf("%d blocks", numBlocks($partition->{'size'})) :
+			       sprintf("0x%05X bytes", $partition->{'size'})));
 
 	    $splice = 1;
 	}
@@ -290,6 +307,8 @@ sub readInFirmware {
 		    # Read the length, and grab the data based on the length.
 		    my($data_len) = unpack("N", substr($firmware_buf, $_->{'offset'}));
 
+		    $debug and printf("Found header size of 0x%08X bytes for <%s>\n", $data_len, $_->{'name'});
+
 		    # A length of 0xFFFFFFFF means that the area is not initialised
 		    if ($data_len != 0xFFFFFFFF) {
 			$_->{'data'} = substr($firmware_buf, $_->{'offset'} + $_->{'header'}, $data_len);
@@ -301,7 +320,10 @@ sub readInFirmware {
 		    $_->{'data'} = substr($firmware_buf, $_->{'offset'}, $_->{'size'});
 		}
 
-		$quiet or defined $_->{'data'} and printf("Read 0x%08X bytes into <%s>\n", length($_->{'data'}), $_->{'name'});
+		$quiet or defined $_->{'data'} and printf("Read %s into <%s>\n",
+							  (length($_->{'data'}) >= $block_size ?
+							   sprintf("%d blocks", numBlocks(length($_->{'data'}))) :
+							   sprintf("0x%05X bytes", length($_->{'data'}))), $_->{'name'});
 	    }
 	}
     } @$partitions_ref;
@@ -784,6 +806,9 @@ if (defined $ramdisk) {
 	    if ($entry{'name'} ne 'Ramdisk') {
 		$entry{'offset'} = undef;
 		$entry{'size'} = undef;
+		$entry{'variable'} = 1;
+		$entry{'header'} = 0;
+		$entry{'pseudo'} = 0;
 		$entry{'data'} = undef;
 	    }
 
