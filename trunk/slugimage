@@ -16,6 +16,10 @@ sub padBytes {
     my($pad_char) = pack("C",0xff);
     my($pad_len) = $total_len - length($data);
 
+    if (length($data) > $total_len) {
+	die "Internal error: data is longer than total_len";
+    }
+
     return $data . ($pad_char x $pad_len);
 }
 
@@ -214,7 +218,7 @@ sub layoutPartitions {
 
 	    # A zero size is a request to fill all available space.
 	    if ($_->{'size'} == 0) {
-		# Grab the start of the FIS directory, and fill up to there.
+		# Grab the start of the FIS directory, and use all the space up to there.
 		$_->{'size'} = paddedSize($partitions[-2]->{'offset'} + $flash_start - $pointer);
 	    }
 
@@ -242,6 +246,8 @@ sub layoutPartitions {
 		print("Allocated <", $_->{'name'}, "> from ", sprintf("0x%08X", $_->{'start'}),
 		      " to ", sprintf("0x%08X", $_->{'start'} + $_->{'size'}), "\n");
 	    }
+
+	    # If offset is not defined, then calculate it.
 	    else {
 		$_->{'start'} = $pointer;
 		$_->{'offset'} = $_->{'start'} - $flash_start;
@@ -251,10 +257,12 @@ sub layoutPartitions {
 		      " to ", sprintf("0x%08X", $_->{'start'} + $_->{'size'}), "\n");
 	    }
 
+	    # Check to make sure we have not run out of room.
 	    if (($_->{'start'} + $_->{'size'}) > ($flash_start + $flash_len)) {
 		die "Ran out of flash space in <", $_->{'name'}, ">\n";
 	    }
 
+	    # Move the pointer up, in preparation for the next partition.
 	    $pointer = $_->{'start'} + paddedSize($_->{'size'});
 
 	}
@@ -272,13 +280,16 @@ sub buildPartitionTable {
 
     map {
 
+	# Collate the partition data for all known partitions.
 	if (defined $_->{'offset'} and defined $_->{'size'}) {
 
+	    # Pack and append the binary table entry for this partition.
 	    $partition_data .= partitionEntry($_->{'name'}, $_->{'offset'} + $flash_start, $_->{'size'});
-#	    $partition_data .= partitionEntry($_->{'name'}, $_->{'offset'}, $_->{'size'});
 
 	    # If this is the FIS directory, then write the partition table data into it.
 	    if ($_->{'name'} eq "FIS directory") {
+		# Explicitly terminate the partition data.
+		$partition_data .= pack("C",0xff) x 0x100;
 		$_->{'data'} = padBytes($partition_data, $_->{'size'});
 	    }
 	}
