@@ -90,8 +90,11 @@ sub readInFirmware {
 
 	    # For those partitions which can be smaller, read the length and truncate the data.
 	    if (($_->{'name'} eq 'Kernel') or ($_->{'name'} eq 'Ramdisk')) {
-		$_->{'size'} = unpack("N", $_->{'data'});
-		$_->{'data'} = substr($_->{'data'}, 16, $_->{'size'});
+		my $size = unpack("N", $_->{'data'});
+		$_->{'data'} = substr($_->{'data'}, 16, $size);
+		if ($_->{'name'} eq 'Ramdisk') {
+		    $_->{'size'} = paddedSize($size);
+		}
 	    }
 
 	    print("Read ", sprintf("0x%08X", length($_->{'data'})), " bytes from \"",
@@ -137,7 +140,14 @@ sub readInFirmwareParts {
 	if (defined $file) {
 	    open FILE,$file or die "Can't find firmware part \"$file\": $!\n";
 	    $_->{'data'} = <FILE>;
-#	    $_->{'size'} = length($_->{'data'}); # size is for partition size - not data length
+	    if (not defined $_->{'size'}) {
+		if ($_->{'name'} eq 'Ramdisk') {
+		    $_->{'size'} = paddedSize(16 + length($_->{'data'}));
+		}
+		else {
+		    $_->{'size'} = paddedSize(length($_->{'data'}));
+		}
+	    }
 	    print("Read ", sprintf("0x%08X", length($_->{'data'})), " bytes from \"",
 		  $_->{'file'}, "\" into <", $_->{'name'}, ">\n");
 	}
@@ -176,11 +186,10 @@ sub layoutPartitions {
 	if (defined $_->{'size'} and not defined $_->{'data'} and ($_->{'name'} ne "FIS directory")) {
 
 	    if ($_->{'size'} == 0) {
-		$_->{'size'} = $partitions[-2]->{'offset'} + $flash_start - $pointer;
+		$_->{'size'} = paddedSize($partitions[-2]->{'offset'} + $flash_start - $pointer);
 	    }
 
 	    $_->{'data'} = jffs2Block() x numBlocks($_->{'size'});
-	    $_->{'size'} = length($_->{'data'});
 
 	    if (($pointer + $_->{'size'}) > ($flash_start + $partitions[-2]->{'offset'})) {
 		die "Ran out of flash space in <", $_->{'name'}, ">\n";
@@ -190,40 +199,26 @@ sub layoutPartitions {
 
 	}
 
-	if ($_->{'name'} eq 'Ramdisk') {
-	    $_->{'size'} = paddedSize(length('data') + 16);
-	}
-
 	if (defined $_->{'size'} and ($_->{'name'} ne "Trailer")) {
-
-	    my $size = $_->{'size'};
-
-#	    if ($_->{'name'} eq "Kernel") {
-#		$size = 0x100000;
-#	    }
-
-#	    if ($_->{'name'} eq 'Ramdisk') {
-#		$size += 16;
-#	    }
 
 	    # Determine the start and offset of the current partition.
 	    if (defined $_->{'offset'}) {
 		$_->{'start'} = $flash_start + $_->{'offset'};
 		print("Allocated <", $_->{'name'}, "> from ", sprintf("0x%08X", $_->{'start'}),
-		      " to ", sprintf("0x%08X", $_->{'start'} + $size), "\n");
+		      " to ", sprintf("0x%08X", $_->{'start'} + $_->{'size'}), "\n");
 	    }
 	    else {
 		$_->{'start'} = $pointer;
 		$_->{'offset'} = $_->{'start'} - $flash_start;
 		print("Allocated <", $_->{'name'}, "> from ", sprintf("0x%08X", $_->{'start'}),
-		      " to ", sprintf("0x%08X", $_->{'start'} + $size), "\n");
+		      " to ", sprintf("0x%08X", $_->{'start'} + $_->{'size'}), "\n");
 	    }
 
-	    if (($_->{'start'} + $size) > ($flash_start + $flash_len)) {
+	    if (($_->{'start'} + $_->{'size'}) > ($flash_start + $flash_len)) {
 		die "Ran out of flash space in <", $_->{'name'}, ">\n";
 	    }
 
-	    $pointer = $_->{'start'} + paddedSize($size);
+	    $pointer = $_->{'start'} + paddedSize($_->{'size'});
 
 	}
 
@@ -313,13 +308,12 @@ sub writeOutFirmware {
 	    }
 
 	    if ($_->{'name'} eq "Kernel") {
-		$_->{'size'} = 0x100000;
 		$image_buf .= padBytes(pack("N4",length($_->{'data'})).$_->{'data'},
 				       $_->{'size'});
 	    }
 	    elsif ($_->{'name'} eq "Ramdisk") {
 		$image_buf .= padBytes(pack("N4",length($_->{'data'})).$_->{'data'},
-				       paddedSize($_->{'size'}));
+				       $_->{'size'});
 	    }
 	    elsif ($_->{'name'} eq "Trailer") {
 		$image_buf .= $_->{'data'};
@@ -377,7 +371,7 @@ sub defaultPartitions {
     return ({'name'=>'RedBoot',      'file'=>'Redboot',   'offset'=>0x00000000,'size'=>0x00040000,'data'=>undef},
 	    {'name'=>'SysConf',      'file'=>'SysConf',   'offset'=>0x00040000,'size'=>0x00020000,'data'=>undef},
 	    {'name'=>'Kernel',       'file'=>'vmlinuz',   'offset'=>0x00060000,'size'=>0x00100000,'data'=>undef},
-	    {'name'=>'Ramdisk',      'file'=>'ramdisk.gz','offset'=>0x00160000,'size'=>undef     ,'data'=>undef},
+	    {'name'=>'Ramdisk',      'file'=>'ramdisk.gz','offset'=>0x00160000,'size'=>0x006A0000,'data'=>undef},
 	    {'name'=>'FIS directory','file'=>undef,       'offset'=>0x007e0000,'size'=>0x00020000,'data'=>undef},
 	    {'name'=>'Trailer',      'file'=>'Trailer',   'offset'=>0x007ffff0,'size'=>0x00000010,'data'=>undef},
 	    );
@@ -491,6 +485,11 @@ if ($unpack) {
     writeOutFirmwareParts(@partitions);
 
 }
+
+# Undefine the ramdisk size - it must be calculated for packing
+map {
+    ($_->{'name'} eq "Ramdisk") && ($_->{'size'} = undef);
+} @partitions;
 
 # Pack the firmware if requested
 if ($pack) {
