@@ -390,8 +390,7 @@ sub layoutPartitions {
 	    }
 
 	    # Keep the user appraised ...
-	    print("Created <", $_->{'name'}, "> (", numBlocks($_->{'size'}), " blocks)\n");
-
+	    $debug and printf("Created <%s> (%d blocks)\n", $_->{'name'}, $_->{'size'});
 	}
 
 	# The handle known partitions, and allocate them.
@@ -402,9 +401,8 @@ sub layoutPartitions {
 		$_->{'start'} = $flash_start + $_->{'offset'};
 
 		# Keep the user appraised ...
-		print("Allocated <", $_->{'name'}, "> from ", sprintf("0x%08X", $_->{'start'}),
-		      " to ", sprintf("0x%08X", $_->{'start'} + $_->{'size'}), " (",
-		      numBlocks($_->{'size'}), " blocks)\n");
+		$debug and printf("Allocated <%s> from 0x%08X to 0x%08X (%d blocks)\n",
+				  $_->{'name'}, $_->{'start'}, $_->{'start'} + $_->{'size'}, numBlocks($_->{'size'}));
 	    }
 
 	    # If offset is not defined, then calculate it.
@@ -413,9 +411,8 @@ sub layoutPartitions {
 		$_->{'offset'} = $_->{'start'} - $flash_start;
 
 		# Keep the user appraised ...
-		print("Allocated <", $_->{'name'}, "> from ", sprintf("0x%08X", $_->{'start'}),
-		      " to ", sprintf("0x%08X", $_->{'start'} + $_->{'size'}), " (",
-		      numBlocks($_->{'size'}), " blocks)\n");
+		$debug and printf("Allocated <%s> from 0x%08X to 0x%08X (%d blocks)\n",
+				  $_->{'name'}, $_->{'start'}, $_->{'start'} + $_->{'size'}, numBlocks($_->{'size'}));
 	    }
 
 	    # Check to make sure we have not run out of room.
@@ -509,16 +506,14 @@ sub writeOutFirmware {
 
 	    if ($_->{'offset'} > $pointer) {
 		$image_buf .= padBytes("", $_->{'offset'} - $pointer);
-		print("Padded ", sprintf("%d", numBlocks(length($image_buf) - $pointer)),
-		      " blocks before <", $_->{'name'}, "> in \"", $filename, "\"\n");
+		$debug and printf("Padded %d blocks before <%s> in \"%s\"\n",
+				  numBlocks(length($image_buf) - $pointer), $_->{'name'}, $filename);
 		$pointer = length($image_buf);
 	    }
 	    elsif ($_->{'offset'} < $pointer) {
-#		print("Offset is ", sprintf("0x%08X", $_->{'offset'}), ", pointer is ",
-#		      , sprintf("0x%08X", $pointer), "\n");
 		$image_buf = substr($image_buf, 0, $_->{'offset'});
-		print("Rewound ", ($pointer - $_->{'offset'}), " bytes before <",
-		      $_->{'name'}, "> in \"", $filename, "\"\n");
+		$debug and printf("Rewound %d bytes before <%s> in \"%s\"\n",
+				  $pointer - $_->{'offset'}, $_->{'name'}, $filename);
 		$pointer = length($image_buf);
 	    }
 
@@ -538,18 +533,17 @@ sub writeOutFirmware {
 	    }
 	    
 	    if ($_->{'name'} eq 'Trailer') {
-		print("Wrote ", (length($image_buf) - $pointer), " bytes (",
-		      sprintf("0x%08X", $pointer), " to ", sprintf("0x%08X", length($image_buf)), ") from <",
-		      $_->{'name'}, "> into \"", $filename, "\"\n");
+		$debug and printf("Wrote %d bytes (0x%08X to 0x%08X) from <%s> into \"%s\"\n",
+				  length($image_buf) - $pointer, $pointer, length($image_buf), $_->{'name'}, $filename);
 	    }
 	    else {
-		print("Wrote ", numBlocks(length($image_buf) - $pointer), " blocks (",
-		      sprintf("0x%08X", $pointer), " to ", sprintf("0x%08X", length($image_buf)), ") from <",
-		      $_->{'name'}, "> into \"", $filename, "\"\n");
+		$debug and printf("Wrote %d blocks (0x%08X to 0x%08X) from <%s> into \"%s\"\n",
+				  numBlocks(length($image_buf) - $pointer), $pointer, length($image_buf),
+				  $_->{'name'}, $filename);
 	    }
 	}
 	else {
-	    print "Skipping ", $_->{'name'}, "\n";
+	    $debug and print "Skipping ", $_->{'name'}, "\n";
 	}
 
     } @partitions;
