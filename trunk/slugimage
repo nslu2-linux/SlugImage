@@ -105,13 +105,13 @@ sub layoutPartitions {
 	    # Determine the start and offset of the current partition.
 	    if (defined $_->{'offset'}) {
 		$_->{'start'} = $flash_start + $_->{'offset'};
-		print("<", $_->{'name'}, ">: ", sprintf("0x%08X", $_->{'start'}),
+		print("Allocated <", $_->{'name'}, "> from ", sprintf("0x%08X", $_->{'start'}),
 		      " to ", sprintf("0x%08X", $_->{'start'} + $_->{'size'}), "\n");
 	    }
 	    else {
 		$_->{'start'} = $pointer;
 		$_->{'offset'} = $_->{'start'} - $flash_start;
-		print("<", $_->{'name'}, ">: ", sprintf("0x%08X", $_->{'start'}),
+		print("Allocated <", $_->{'name'}, "> from ", sprintf("0x%08X", $_->{'start'}),
 		      " to ", sprintf("0x%08X", $_->{'start'} + $_->{'size'}), "\n");
 	    }
 
