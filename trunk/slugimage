@@ -15,7 +15,7 @@ sub padBytes {
     my($pad_char) = pack("C",0x00);
     my($pad_len) = $total_len - length($data);
 
-    return $data . $pad_char x $pad_len;
+    return $data . ($pad_char x $pad_len);
 }
 
 sub paddedSize {
@@ -105,17 +105,22 @@ sub layoutPartitions {
 	    # Determine the start and offset of the current partition.
 	    if (defined $_->{'offset'}) {
 		$_->{'start'} = $flash_start + $_->{'offset'};
+		print("<", $_->{'name'}, ">: ", sprintf("0x%08X", $_->{'start'}),
+		      " to ", sprintf("0x%08X", $_->{'start'} + $_->{'size'}), "\n");
 	    }
 	    else {
 		$_->{'start'} = $pointer;
-		$_->{'offset'} = $_->{'start'} = $flash_start;
+		$_->{'offset'} = $_->{'start'} - $flash_start;
+		print("<", $_->{'name'}, ">: ", sprintf("0x%08X", $_->{'start'}),
+		      " to ", sprintf("0x%08X", $_->{'start'} + $_->{'size'}), "\n");
 	    }
 
-	    $pointer = $_->{'start'} + $_->{'size'};
-
-	    if ($pointer > $flash_start + $flash_len) {
+	    if (($_->{'start'} + $_->{'size'}) > ($flash_start + $flash_len)) {
 		die "ran out of flash space during ", $_->{'name'}, "\n";
 	    }
+
+	    $pointer = $_->{'start'} + paddedSize($_->{'size'});
+
 	}
 	else {
 	    print "Skipping ", $_->{'name'}, "\n";
@@ -190,6 +195,7 @@ sub readInFirmwareParts {
 	if (defined $file) {
 	    open FILE,$file or die "can't find firmware part $file: $!\n";
 	    $_->{'data'} = <FILE>;
+	    $_->{'size'} = length($_->{'data'});
 	    print("Read ", sprintf("0x%08X", length($_->{'data'})), " bytes from \"",
 		  $_->{'file'}, "\" into <", $_->{'name'}, ">\n");
 	}
