@@ -216,7 +216,10 @@ sub writeImage {
 
 	if ($_->{'offset'} > $pointer) {
 	    $image_buf .= padBytes("", $_->{'offset'} - $pointer);
-	    print("Padded ", sprintf("0x%08X", length($image_buf) - $pointer), " bytes before <",
+	    my($block_size) = 0x00020000;
+	    use integer;
+	    my($blocks) = ((length($image_buf) - $pointer) / $block_size);
+	    print("Padded ", sprintf("%d", $blocks), " blocks before <",
 		  $_->{'name'}, "> in \"", $filename, "\"\n");
 	    $pointer = length($image_buf);
 	}
