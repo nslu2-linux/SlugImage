@@ -48,9 +48,11 @@ my($quiet) = 0;
 sub padBytes {
     my($data,$total_len) = @_;
 
+    # 0xFF is used to pad, as it's the erase value of the flash.
     my($pad_char) = pack("C",0xff);
     my($pad_len) = $total_len - length($data);
 
+    # A request for negative padding is indicative of a logic error ...
     if (length($data) > $total_len) {
 	die "padBytes error: data is longer than total_len";
     }
@@ -84,10 +86,11 @@ sub createPartitionEntry {
 
     $debug and printf("createPartitionEntry: %s\t0x%08X\t0x%08X\t%d\n", $name, $flash_base, $size, $size / 0x00020000);
 
+    # Pack the partition entry according to the format that RedBoot (and the MTD partition parsing code) requires.
     return pack("a16N5x212N2",$name,$flash_base,$zero_long,$size,$zero_long,$zero_long,$zero_long,$zero_long);
 }
 
-# parse partition entry and return anon array ref [$name, $offset, $size] or return 0 on partition terminator
+# Parse partition entry and return anon array ref [$name, $offset, $size] or return 0 on partition terminator.
 sub parsePartitionEntry {
     my($partition_entry) = @_;
 
@@ -95,20 +98,24 @@ sub parsePartitionEntry {
     my($entry_len) = 0x100;
     length($partition_entry) eq $entry_len or die "parsePartitionEntry: partition entry length is not $entry_len!\n";
 
+    # Unpack the partition table entry, saving those values in which we are interested.
     my($name, $flash_base, $size, $zero_long, $padding);
     ($name, $flash_base, $zero_long, $size, $zero_long, $zero_long, $padding, $zero_long, $zero_long) =
 	unpack("a16N5x212N2",$partition_entry);
 
-    if(unpack("C", $name) eq 0xff){
+    # A partition entry starting with 0xFF terminates the table.
+    if (unpack("C", $name) eq 0xff) {
 	$debug and print "parsePartitionEntry: found terminator\n";
 	return 0;
     }
-    # remove trailing nulls from $name
+
+    # Remove trailing nulls from the partition name.
     $name =~ s/\000+//;
+
     return [$name, $flash_base - $flash_start, $size];
 }
 
-# return partition table from data is one exists, otherwise return 0
+# Return partition table from data is one exists, otherwise return 0.
 sub findPartitionTable {
     my($data_buf) = @_;
 
@@ -116,14 +123,16 @@ sub findPartitionTable {
     return substr($data_buf, 0, 0x1000)
 }
 
-# parse partition table and return array of anonymous array references ([$name, $offset, $size], ...)
+# Parse partition table and return array of anonymous array references ([$name, $offset, $size], ...).
 sub parsePartitionTable {
     my($partition_table) = @_;
 
     my(@partitions, $fields_ref);
     my($entry_len) = 0x100;
     my($partition_count) = 0;
-    while ($fields_ref = parsePartitionEntry(substr($partition_table, $partition_count * $entry_len, $entry_len))){
+
+    # Loop through the fixed size partition table entries, and store the entries in @partitions.
+    while ($fields_ref = parsePartitionEntry(substr($partition_table, $partition_count * $entry_len, $entry_len))) {
 	$debug and printf("parsePartitionTable: %s\t0x%08X\t0x%08X\n", @$fields_ref);
 	$partitions[$partition_count++] = $fields_ref;
     }
@@ -141,7 +150,7 @@ sub writeOut {
 
     open FILE,">$filename" or die "Can't open file \"$filename\": $!\n";
 
-    if(defined($data)){ print FILE $data;}
+    if (defined($data)) { print FILE $data;}
 
     close FILE or die "Can't close file \"$filename\": $!\n";
 }
@@ -158,18 +167,19 @@ sub trailerData {
     return pack("n4a6n",$product_id,$protocol_id,$firmware_version,$unknown1,$magic_number,$unknown2);
 }
 
-# print contents of sercomm redboot trailer
+# Print the contents of the Sercomm RedBoot trailer.
 sub printRedbootTrailer {
     my($redboot_data) = @_;
 
     my($correct_redboot_len) = 0x40000;
     my($redboot_data_len) = length($redboot_data);
 
-    if($redboot_data_len != $correct_redboot_len){
+    if ($redboot_data_len != $correct_redboot_len) {
 	printf("Redboot length (0x%08X) is not 0x%08X\n", $redboot_data_len, $correct_redboot_len);
 	return;
     }
 
+    # The trailer is the last 80 bytes of the redboot partition.
     my($redboot_trailer) = substr($redboot_data, -80);
 
     writeOut($redboot_trailer, 'RedbootTrailer');
@@ -241,7 +251,7 @@ sub useFirmwarePartitions {
     map {
 	$debug and printf("%s\t0x%08X\t0x%08X\n", @$_);
 	$partitions_ref->[$partition_count] = {'name'=>$_->[0], 'offset'=>$_->[1], 'size'=>$_->[2], 'file'=>$_->[0]};
-	if($_->[0] eq 'Kernel' or $_->[0] eq 'Ramdisk'){
+	if ($_->[0] eq 'Kernel' or $_->[0] eq 'Ramdisk') {
 	    my($data_len) =  unpack("N", substr($firmware_buf, $_->[1]));
 	    $debug and printf("%s has data length 0x%08X\n",$partitions_ref->[$partition_count]->{'name'} , $data_len);
 	    $partitions_ref->[$partition_count]->{'data'}   = substr($firmware_buf, $_->[1] + 16, $data_len);
@@ -334,7 +344,7 @@ sub readInFirmwareParts {
 	}
 	else {
 	    # read in payload if defined
-	    if($_->{'name'} eq 'FIS directory' and defined $_->{'payload'}){
+	    if ($_->{'name'} eq 'FIS directory' and defined $_->{'payload'}) {
 		my($payload) = $_->{'payload'};
 		open PAYLOAD,$payload or die "Can't find payload \"$payload\": $!\n";
 		$_->{'payload_data'} = <PAYLOAD>;
@@ -363,6 +373,24 @@ sub layoutPartitions {
     my($flash_len)   = 0x00800000;
     my($block_size)  = 0x00020000;
 
+    # Find the last variable size partition, and save a pointer to it for later use
+    my $lastdisk;
+    my $curdisk = $partitions[0];
+    map {
+	if (not defined $lastdisk) {
+	    if ($_->{'name'} eq "FIS directory") {
+		$lastdisk = $curdisk;
+	    }
+	    else {
+		$curdisk = $_;
+	    }
+	}
+    } @partitions;
+
+    $lastdisk or die "Couldn't find the last variable size partition\n";
+
+    $debug and printf("Last variable size partition is <%s>\n", $lastdisk->{'name'});
+
     #
     # here we go through the $partitions array ref and fill in all the values
     #
@@ -373,7 +401,7 @@ sub layoutPartitions {
     map {
 
 	# If this is the last variable size partition, then fill the rest of the space.
-	if ($_->{'name'} eq $partitions[-3]->{'name'}) {
+	if ($_->{'name'} eq $lastdisk->{'name'}) {
 	    $_->{'size'} = paddedSize($partitions[-2]->{'offset'} + $flash_start - $pointer);
 	}
 
@@ -454,7 +482,7 @@ sub buildPartitionTable {
 	    if ($_->{'name'} eq "FIS directory") {
 		# Explicitly terminate the partition data.
 		$partition_data .= pack("C",0xff) x 0x100;
-		if(defined $_->{'payload_data'}){
+		if (defined $_->{'payload_data'}) {
 		    $_->{'data'} = padBytes($partition_data, $payload_offset) .
 			padBytes(pack("N4",length($_->{'payload_data'})).$_->{'payload_data'},
 				 $_->{'size'} - $payload_offset);
@@ -495,7 +523,7 @@ sub checkPartitionTable {
 	$debug and printf("pointer: %d\tname: %s\tflash_base: 0x%08X\tsize: 0x%08X\n", $pointer, $name, $flash_base, $size);
 	$pointer += 0x100;
 	$debug and printf("terminator: 0x%08X\n", unpack("C", substr($data, $pointer, 1)));
-	if(unpack("C", substr($data, $pointer, 1)) eq 0xff){
+	if (unpack("C", substr($data, $pointer, 1)) eq 0xff) {
 	    $done = 1;
 	}
     } until $done;
@@ -570,13 +598,13 @@ sub printPartitions {
     map {
 #	defined $_->{'size'} ? $size = $_->{'size'} : $size = 'undef';
 
-	if(defined  $_->{'size'}){
+	if (defined  $_->{'size'}) {
 	    $size = $_->{'size'};
 	}
 	else {
 	    $size = 'undef';
 	}
-	if(defined  $_->{'offset'}){
+	if (defined  $_->{'offset'}) {
 	    $offset = $_->{'offset'};
 	}
 	else {
@@ -587,11 +615,6 @@ sub printPartitions {
 }
 
 sub defaultPartitions {
-
-    # Note that other routines make assumptions that this table will stay in the current order, with
-    # new partitions only being added where the current Ramdisk partition exists.
-    # In particular, the Ramdisk partition must stay at index 3, and the partition at the end of the
-    # Ramdisk/Rootdisk/Userdis partitions must stay at index -2.
 
     return ({'name'=>'RedBoot',      'file'=>'Redboot',   'offset'=>0x00000000,'size'=>0x00040000,'data'=>undef},
 	    {'name'=>'SysConf',      'file'=>'SysConf',   'offset'=>0x00040000,'size'=>0x00020000,'data'=>undef},
@@ -674,11 +697,27 @@ if (defined $ramdisk) {
     else {
 	my @mappings = split(',', $ramdisk);
 
+	# Find the index of the Ramdisk entry
+	my $index;
+	my $count = 0;
+	map {
+	    if (not defined $index) {
+		if ($_->{'name'} eq "Ramdisk") {
+		    $index = $count;
+		}
+		$count++;
+	    }
+	} @partitions;
+
+	defined $index or die "Cannot find the Ramdisk partition\n";
+
+	$debug and printf("The index of the Ramdisk is %d\n", $index);
+
 	# Replace the Ramdisk entry with the new mappings
-	splice(@partitions, 3, 1, map {
+	splice(@partitions, $index, 1, map {
 
 	    # Preserve the information from the ramdisk entry
-	    my %entry = %{$partitions[3]};
+	    my %entry = %{$partitions[$index]};
 
 	    # Parse the mapping
 	    ($_ =~ m/^([^:]+):([^:]+)(:([^:]+))?$/) or die "Invalid syntax in --ramdisk\n";
@@ -757,7 +796,7 @@ if ($pack) {
 
 	my($lastblock);
 	map {
-	    if($_->{'name'} eq 'FIS directory'){
+	    if ($_->{'name'} eq 'FIS directory') {
 		$lastblock = $_->{'data'};
 	    }
 	} @partitions;
