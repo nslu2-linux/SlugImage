@@ -259,7 +259,8 @@ sub spliceFirmwarePartitions {
 }
 
 # Read in an 8MB firmware file, and store the data into @partitions.
-# Note that the data is only stored in a partition if 'offset' and 'size' are defined. (fix this comment)
+# Note that the data is only stored in a partition if 'offset' and 'size' are defined,
+# and it does not already have data stored in it.
 sub readInFirmware {
     my($filename, $partitions_ref) = @_;
 
@@ -278,24 +279,30 @@ sub readInFirmware {
     map {
 	if (defined $_->{'offset'} and defined $_->{'size'}) {
 
-	    # Slurp up the data, based on whether a header is present or not
-	    if ($_->{'header'}) {
-
-		# Read the length, and grab the data based on the length.
-		my($data_len) = unpack("N", substr($firmware_buf, $_->{'offset'}));
-
-		# A length of 0xFFFFFFFF means that the area is not initialised
-		if ($data_len != 0xFFFFFFFF) {
-		    $_->{'data'} = substr($firmware_buf, $_->{'offset'} + $_->{'header'}, $data_len);
-		}
+	    if (defined $_->{'data'}) {
+		$debug and printf("Not overwriting data in <%s>\n", $_->{'name'});
 	    }
 	    else {
 
-		# Grab the whole partition, using the maximum size.
-		$_->{'data'} = substr($firmware_buf, $_->{'offset'}, $_->{'size'});
-	    }
+		# Slurp up the data, based on whether a header is present or not
+		if ($_->{'header'}) {
 
-	    $quiet or defined $_->{'data'} and printf("Read 0x%08X bytes into <%s>\n", length($_->{'data'}), $_->{'name'});
+		    # Read the length, and grab the data based on the length.
+		    my($data_len) = unpack("N", substr($firmware_buf, $_->{'offset'}));
+
+		    # A length of 0xFFFFFFFF means that the area is not initialised
+		    if ($data_len != 0xFFFFFFFF) {
+			$_->{'data'} = substr($firmware_buf, $_->{'offset'} + $_->{'header'}, $data_len);
+		    }
+		}
+		else {
+
+		    # Grab the whole partition, using the maximum size.
+		    $_->{'data'} = substr($firmware_buf, $_->{'offset'}, $_->{'size'});
+		}
+
+		$quiet or defined $_->{'data'} and printf("Read 0x%08X bytes into <%s>\n", length($_->{'data'}), $_->{'name'});
+	    }
 	}
     } @$partitions_ref;
 }
@@ -314,7 +321,7 @@ sub writeOutFirmwareParts {
 			      length($_->{'data'}), $_->{'name'}, $_->{'file'});
 	}
 	else {
-	    $debug and printf("Skipping %s (%s)\n", $_->{'name'},
+	    $debug and printf("Skipping <%s> (%s)\n", $_->{'name'},
 			      (not defined $_->{'file'}) ?
 			      "no filename specified" :
 			      "no data to write");
@@ -455,11 +462,11 @@ sub layoutPartitions {
 		$_->{'start'} = $flash_start + $_->{'offset'};
 
 		# Keep the user appraised ...
-		$quiet or printf("Allocated <%s> from 0x%08X to 0x%08X (%s)\n",
-				 $_->{'name'}, $_->{'start'}, $_->{'start'} + $_->{'size'},
-				 ($_->{'size'} >= $block_size ?
-				  sprintf("%d blocks", numBlocks($_->{'size'})) :
-				  sprintf("0x%05X bytes", $_->{'size'})));
+		$debug and printf("Allocated <%s> from 0x%08X to 0x%08X (%s)\n",
+				  $_->{'name'}, $_->{'start'}, $_->{'start'} + $_->{'size'},
+				  ($_->{'size'} >= $block_size ?
+				   sprintf("%d blocks", numBlocks($_->{'size'})) :
+				   sprintf("0x%05X bytes", $_->{'size'})));
 	    }
 
 	    # If offset is not defined, then calculate it.
@@ -468,11 +475,11 @@ sub layoutPartitions {
 		$_->{'offset'} = $_->{'start'} - $flash_start;
 
 		# Keep the user appraised ...
-		$quiet or printf("Allocated <%s> from 0x%08X to 0x%08X (%s)\n",
+		$debug and printf("Allocated <%s> from 0x%08X to 0x%08X (%s)\n",
 				  $_->{'name'}, $_->{'start'}, $_->{'start'} + $_->{'size'},
-				 ($_->{'size'} >= $block_size ?
-				  sprintf("%d blocks", numBlocks($_->{'size'})) :
-				  sprintf("0x%05X bytes", $_->{'size'})));
+				  ($_->{'size'} >= $block_size ?
+				   sprintf("%d blocks", numBlocks($_->{'size'})) :
+				   sprintf("0x%05X bytes", $_->{'size'})));
 	    }
 
 	    # Check to make sure we have not run out of room.
@@ -512,11 +519,11 @@ sub buildPartitionTable {
 	    }
 
 	    # Keep the user appraised ...
-	    $quiet or printf("Table entry <%s> from 0x%08X to 0x%08X (%s)\n",
-			     $_->{'name'}, $_->{'start'}, $_->{'start'} + $_->{'size'},
-			     ($_->{'size'} >= $block_size ?
-			      sprintf("%d blocks", numBlocks($_->{'size'})) :
-			      sprintf("0x%05X bytes", $_->{'size'})));
+	    $debug and printf("Table entry <%s> from 0x%08X to 0x%08X (%s)\n",
+			      $_->{'name'}, $_->{'start'}, $_->{'start'} + $_->{'size'},
+			      ($_->{'size'} >= $block_size ?
+			       sprintf("%d blocks", numBlocks($_->{'size'})) :
+			       sprintf("0x%05X bytes", $_->{'size'})));
 	}
 	else {
 	    $debug and print "No table entry required for <", $_->{'name'}, ">\n";
@@ -564,7 +571,6 @@ sub writeOutFirmware {
 	if (defined $_->{'offset'} and defined $_->{'size'} and defined $_->{'data'}) {
 
 	    my $end_point = length($image_buf);
-	    $debug and printf("End point is now 0x%08X before <%s>\n", $end_point, $_->{'name'});
 
 	    if ($_->{'offset'} > $end_point) {
 		$image_buf .= padBytes("", $_->{'offset'} - $end_point);
@@ -575,8 +581,8 @@ sub writeOutFirmware {
 				 $_->{'name'}, $filename);
 	    }
 	    elsif ($_->{'offset'} < $end_point) {
-		$debug or printf("Rewound 0x%05X bytes before <%s> in \"%s\"\n",
-				 $end_point - $_->{'offset'}, $_->{'name'}, $filename);
+		$debug and printf("Rewound 0x%05X bytes before <%s> in \"%s\"\n",
+				  $end_point - $_->{'offset'}, $_->{'name'}, $filename);
 		if (($end_point - $_->{'offset'}) >= $block_size) {
 		    die "Allocation error: rewound a full block or more ...\n";
 		}
@@ -594,7 +600,7 @@ sub writeOutFirmware {
 			     $_->{'offset'}, $_->{'offset'}+$_->{'size'}, $_->{'name'}, $filename);
 	}
 	else {
-	    $debug and printf("Skipping %s (%s)\n", $_->{'name'},
+	    $debug and printf("Skipping <%s> (%s)\n", $_->{'name'},
 			      (not defined $_->{'offset'}) ? "no offset defined" :
 			      ((not defined $_->{'size'}) ? "no size defined" :
 			       "no data available"));
@@ -637,7 +643,7 @@ sub defaultPartitions {
     # %%% LastBlock slugmark stuff, and the payload.  Then they can be handled in the code just like any other
     # %%% partition.  We probably need some sort of flag to indicate a parition that has a length header.
 
-    return ({'name'=>'RedBoot',           'file'=>'Redboot',
+    return ({'name'=>'RedBoot',           'file'=>'RedBoot',
 	     'offset'=>0x00000000,        'size'=>0x00040000,
 	     'variable'=>0, 'header'=>0,  'pseudo'=>0, 'data'=>undef},
 	    {'name'=>'EthAddr',           'file'=>undef,
@@ -655,7 +661,7 @@ sub defaultPartitions {
 	    {'name'=>'FIS directory',     'file'=>undef,
 	     'offset'=>0x007e0000,        'size'=>0x00020000,
 	     'variable'=>0, 'header'=>0,  'pseudo'=>0, 'data'=>undef},
-	    {'name'=>'Payload',	          'file'=>'payload.tar.gz',
+	    {'name'=>'Payload',	          'file'=>undef,
 	     'offset'=>0x007e1000,        'size'=>0x0001eff0,
 	     'variable'=>1, 'header'=>16, 'pseudo'=>1, 'data'=>undef},
 	    {'name'=>'Trailer',           'file'=>'Trailer',
@@ -814,37 +820,37 @@ if ($pack) {
 
     my $result = readInFirmwareParts(@partitions);
 
-    if ($debug) {
-	print "after readInFirmwareParts():\n";
-	printPartitions(@partitions);
-	map {
-	    ($_->{'name'} eq 'RedBoot') && (printRedbootTrailer($_->{'data'}));
-	} @partitions;
-    }
+#     if ($debug) {
+# 	print "after readInFirmwareParts():\n";
+# 	printPartitions(@partitions);
+# 	map {
+# 	    ($_->{'name'} eq 'RedBoot') && (printRedbootTrailer($_->{'data'}));
+# 	} @partitions;
+#     }
     
     layoutPartitions(@partitions);
 
-    if ($debug) {
-	print "after layoutPartitions():\n";
-	printPartitions(@partitions);
-    }
+#     if ($debug) {
+# 	print "after layoutPartitions():\n";
+# 	printPartitions(@partitions);
+#     }
     
     buildPartitionTable(@partitions);
 
-    if ($debug) {
-	print "after buildPartitionTable():\n";
-	printPartitions(@partitions);
+#     if ($debug) {
+# 	print "after buildPartitionTable():\n";
+# 	printPartitions(@partitions);
 
-	my($lastblock);
-	map {
-	    if ($_->{'name'} eq 'FIS directory') {
-		$lastblock = $_->{'data'};
-	    }
-	} @partitions;
+# 	my($lastblock);
+# 	map {
+# 	    if ($_->{'name'} eq 'FIS directory') {
+# 		$lastblock = $_->{'data'};
+# 	    }
+# 	} @partitions;
 
-	print "checkPartitionTable():\n";
-	checkPartitionTable($lastblock);
-    }
+# 	print "checkPartitionTable():\n";
+# 	checkPartitionTable($lastblock);
+#     }
     
     die "Output filename must be specified\n" unless defined $output;
 
