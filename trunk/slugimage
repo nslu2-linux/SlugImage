@@ -244,6 +244,10 @@ sub useFirmwarePartitions {
     # return 0 here if no partition table in FIS directory
     return 0 if not $partition_table;
 
+    # %%% What we really want to do here is change the values of any variable partitions.
+    # %%% Then we can add stuff to the default partition table to have it written out (like
+    # %%% the RedBootTrailer, the LastBlock stuff and the payload.
+
     # don't want any default partitions hanging around
     @$partitions_ref = ();
 
@@ -616,6 +620,10 @@ sub printPartitions {
 
 sub defaultPartitions {
 
+    # %%% I would like to add all the little "pseudo-partitions" to this table (like the RedBootTrailer, the
+    # %%% LastBlock slugmark stuff, and the payload.  Then they can be handled in the code just like any other
+    # %%% partition.  We probably need some sort of flag to indicate a parition that has a length header.
+
     return ({'name'=>'RedBoot',      'file'=>'Redboot',   'offset'=>0x00000000,'size'=>0x00040000,'data'=>undef},
 	    {'name'=>'SysConf',      'file'=>'SysConf',   'offset'=>0x00040000,'size'=>0x00020000,'data'=>undef},
 	    {'name'=>'Kernel',       'file'=>'vmlinuz',   'offset'=>0x00060000,'size'=>0x00100000,'data'=>undef},
@@ -626,17 +634,7 @@ sub defaultPartitions {
 
 }
 
-#
-# flow should go something like this:
-# call @partitions = defaultPartitions(), populate filenames with command line args
-# pass \@partitions to some func which reads the files and populates the data values
-# pass \@partitions to layoutPartitions() to get fully populated (start and size values)
-# some func, possibly layoutPartitions() needs to call padBytes() on the various partition data
-# with the correct size value (which should have been calculated by layoutPartitions() with the
-# help of fixed partition lengths and for variable length partitions, paddedSize()
-# then write out the image, somewhere in there passing \@partitions to lastBlock() which in turn
-# passes it to buildPartitionTable (which should be renamed to partitionTable and replace it)
-#
+# Main routine starts here ...
 
 my(@partitions) = defaultPartitions();
 
