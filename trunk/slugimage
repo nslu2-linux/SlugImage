@@ -47,8 +47,8 @@ sub partitionEntry {
 
     my($zero_long) = 0x0000;
 
-    my($num_blocks) = $size / 0x00020000;
-    printf("partitionEntry: %s\t0x%08X\t0x%08X\t%d\n", $name, $flash_base, $size, $num_blocks);
+    # my($num_blocks) = $size / 0x00020000;
+    # printf("partitionEntry: %s\t0x%08X\t0x%08X\t%d\n", $name, $flash_base, $size, $num_blocks);
 
     return pack("a16N5x212N2",$name,$flash_base,$zero_long,$size,$zero_long,$zero_long,$zero_long,$zero_long);
 }
@@ -544,28 +544,34 @@ if ($pack) {
 
     my $result = readInFirmwareParts(@partitions);
 
-    print "after readInFirmwareParts():\n";
-    printPartitions(@partitions);
+    if ($debug) {
+	print "after readInFirmwareParts():\n";
+	printPartitions(@partitions);
+    }
     
     layoutPartitions(@partitions);
 
-    print "after layoutPartitions():\n";
-    printPartitions(@partitions);
+    if ($debug) {
+	print "after layoutPartitions():\n";
+	printPartitions(@partitions);
+    }
     
     buildPartitionTable(@partitions);
 
-    print "after buildPartitionTable():\n";
-    printPartitions(@partitions);
+    if ($debug) {
+	print "after buildPartitionTable():\n";
+	printPartitions(@partitions);
 
-    my($lastblock);
-    map {
-	if($_->{'name'} eq 'FIS directory'){
-	    $lastblock = $_->{'data'};
-	}
-    } @partitions;
+	my($lastblock);
+	map {
+	    if($_->{'name'} eq 'FIS directory'){
+		$lastblock = $_->{'data'};
+	    }
+	} @partitions;
 
-    print "parsePartitionTable():\n";
-    parsePartitionTable($lastblock);
+	print "parsePartitionTable():\n";
+	parsePartitionTable($lastblock);
+    }
     
     writeOutFirmware($output, @partitions);
 
