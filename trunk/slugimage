@@ -264,8 +264,8 @@ sub buildPartitionTable {
 
 	if (defined $_->{'offset'} and defined $_->{'size'}) {
 
-#	    $partition_data .= partitionEntry($_->{'name'}, $_->{'offset'} + $flash_start, $_->{'size'});
-	    $partition_data .= partitionEntry($_->{'name'}, $_->{'offset'}, $_->{'size'});
+	    $partition_data .= partitionEntry($_->{'name'}, $_->{'offset'} + $flash_start, $_->{'size'});
+#	    $partition_data .= partitionEntry($_->{'name'}, $_->{'offset'}, $_->{'size'});
 
 	    # If this is the FIS directory, then write the partition table data into it.
 	    if ($_->{'name'} eq "FIS directory") {
@@ -398,7 +398,7 @@ sub defaultPartitions {
     return ({'name'=>'RedBoot',      'file'=>'Redboot',   'offset'=>0x00000000,'size'=>0x00040000,'data'=>undef},
 	    {'name'=>'SysConf',      'file'=>'SysConf',   'offset'=>0x00040000,'size'=>0x00020000,'data'=>undef},
 	    {'name'=>'Kernel',       'file'=>'vmlinuz',   'offset'=>0x00060000,'size'=>0x00100000,'data'=>undef},
-	    {'name'=>'Ramdisk',      'file'=>'ramdisk.gz','offset'=>0x00160000,'size'=>0x006A0000,'data'=>undef},
+	    {'name'=>'Ramdisk',      'file'=>'ramdisk.gz','offset'=>0x00160000,'size'=>0x00680000,'data'=>undef},
 	    {'name'=>'FIS directory','file'=>undef,       'offset'=>0x007e0000,'size'=>0x00020000,'data'=>undef},
 	    {'name'=>'Trailer',      'file'=>'Trailer',   'offset'=>0x007ffff0,'size'=>0x00000010,'data'=>undef},
 	    );
