@@ -292,11 +292,6 @@ sub readInFirmware {
 		$_->{'data'} = substr($firmware_buf, $_->{'offset'}, $_->{'size'});
 	    }
 
-	    # Size any variable partitions to the next block boundary.
-	    if ($_->{'variable'}) {
-		$_->{'size'} = paddedSize($_->{'size'});
-	    }
-
 	    $quiet or printf("Read 0x%08X bytes into <%s>\n", length($_->{'data'}), $_->{'name'});
 	}
     } @$partitions_ref;
