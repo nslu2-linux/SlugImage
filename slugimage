@@ -83,7 +83,7 @@ sub readInFirmware {
     # Read the parts of the firmware file into the partitions table.
     map {
 
-	if (defined $_->{'offset'} and defined $_->{'size'} and ($_->{'name'} ne "FIS directory")) {
+	if (defined $_->{'offset'} and defined $_->{'size'}) {
 
 	    # Grab the whole partition, using the maximum size.
 	    $_->{'data'} = substr($firmware_buf, $_->{'offset'}, $_->{'size'});
@@ -398,7 +398,7 @@ sub defaultPartitions {
 
 my(@partitions) = defaultPartitions();
 
-my($unpack, $pack, $input, $output, $redboot, $kernel, $sysconf, $ramdisk, $trailer, $macaddr, $debug);
+my($unpack, $pack, $input, $output, $redboot, $kernel, $sysconf, $ramdisk, $fisdir, $trailer, $macaddr, $debug);
 
 if (!GetOptions("d|debug"      => \$debug,
 		"u|unpack"     => \$unpack,
@@ -409,6 +409,7 @@ if (!GetOptions("d|debug"      => \$debug,
 		"k|kernel=s"   => \$kernel,
 		"s|sysconf=s"  => \$sysconf,
 		"r|ramdisk=s"  => \$ramdisk,
+		"f|fisdir=s"   => \$fisdir,
 		"t|trailer=s"  => \$trailer,
 		"m|macaddr=s"  => \$macaddr,
 		) or (not defined $pack and not defined $unpack)) {
@@ -423,6 +424,7 @@ if (!GetOptions("d|debug"      => \$debug,
     print "  [-k|--kernel]   <file>		Input/Ouptut Kernel filename\n";
     print "  [-s|--sysconf]  <file>		Input/Output SysConf filename\n";
     print "  [-r|--ramdisk]  <file>		Input/Output Ramdisk filename(s)\n";
+    print "  [-f|--fisdir]   <file>		Input/Output FIS directory filename\n";
     print "  [-t|--trailer]  <file>		Input/Output Trailer filename\n";
     print "  [-m|--macaddr]  <MAC>		Set the MAC address in RedBoot\n";
 
@@ -432,10 +434,11 @@ if (!GetOptions("d|debug"      => \$debug,
 }
 
 # Go through the partition options, and set the names and files in @partitions
-if (defined $redboot) { map { ($_->{'name'} eq 'RedBoot') && ($_->{'file'} = $redboot); } @partitions; }
-if (defined $kernel)  { map { ($_->{'name'} eq 'Kernel')  && ($_->{'file'} = $kernel);  } @partitions; }
-if (defined $sysconf) { map { ($_->{'name'} eq 'SysConf') && ($_->{'file'} = $sysconf); } @partitions; }
-if (defined $trailer) { map { ($_->{'name'} eq 'Trailer') && ($_->{'file'} = $trailer); } @partitions; }
+if (defined $redboot) { map { ($_->{'name'} eq 'RedBoot') 	&& ($_->{'file'} = $redboot); } @partitions; }
+if (defined $kernel)  { map { ($_->{'name'} eq 'Kernel')  	&& ($_->{'file'} = $kernel);  } @partitions; }
+if (defined $sysconf) { map { ($_->{'name'} eq 'SysConf') 	&& ($_->{'file'} = $sysconf); } @partitions; }
+if (defined $fisdir)  { map { ($_->{'name'} eq 'FIS directory') && ($_->{'file'} = $fisdir);  } @partitions; }
+if (defined $trailer) { map { ($_->{'name'} eq 'Trailer')       && ($_->{'file'} = $trailer); } @partitions; }
 if (defined $ramdisk) {
 
     # A single filename is used for the ramdisk filename
