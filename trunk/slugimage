@@ -223,7 +223,7 @@ sub spliceFirmwarePartitions {
 	# If we are in a variable area, and we haven't reached the end of it,
 	# then splice in another partition for use by the later code.
 	if ($splice and ($partitions_ref->[$partition_count]->{'name'} ne $_->[0])) {
-	    splice(@{$partitions_ref}, $partition_count, 1, {'name' => "",'variable'=>1,'header'=>0});
+	    splice(@{$partitions_ref}, $partition_count, 0, ({'name' => "",'variable'=>1,'header'=>0}));
 	}
 
 	my $partition = $partitions_ref->[$partition_count];
@@ -231,9 +231,8 @@ sub spliceFirmwarePartitions {
 	# Variable partitions can be overridden by the real FIS directory
 	if ($partition->{'variable'}) {
 
-	    # Only override the filename if the partition name doesn't match
+	    # Only override the filename if the partition name is not set or doesn't match
 	    if ($partition->{'name'} ne $_->[0]) {
-		$debug and printf("Overriding <%s> with <%s>\n", $partition->{'name'}, $_->[0]);
 		$partition->{'name'} = $_->[0];
 		$partition->{'file'} = $_->[0];
 	    }
@@ -284,7 +283,11 @@ sub readInFirmware {
 
 		# Read the length, and grab the data based on the length.
 		my($data_len) = unpack("N", substr($firmware_buf, $_->{'offset'}));
-		$_->{'data'} = substr($firmware_buf, $_->{'offset'} + $_->{'header'}, $data_len);
+
+		# A length of 0xFFFFFFFF means that the area is not initialised
+		if ($data_len != 0xFFFFFFFF) {
+		    $_->{'data'} = substr($firmware_buf, $_->{'offset'} + $_->{'header'}, $data_len);
+		}
 	    }
 	    else {
 
@@ -292,7 +295,7 @@ sub readInFirmware {
 		$_->{'data'} = substr($firmware_buf, $_->{'offset'}, $_->{'size'});
 	    }
 
-	    $quiet or printf("Read 0x%08X bytes into <%s>\n", length($_->{'data'}), $_->{'name'});
+	    $quiet or defined $_->{'data'} and printf("Read 0x%08X bytes into <%s>\n", length($_->{'data'}), $_->{'name'});
 	}
     } @$partitions_ref;
 }
