@@ -180,6 +180,10 @@ sub printRedbootTrailer {
     printf("MAC address is %04X%04X%04X\n", $mac_addr0, $mac_addr1, $mac_addr2);
     printf("unknown: %08X\n", $unknown);
     printf("%s:%04X:%04X:%s\n", $prefix, $ver_ctrl, $down_ctrl, $postfix);
+    printf("VerControl: %04X\nDownControl: %04X\n", $ver_ctrl, $down_ctrl);
+    printf("hid: %04X %04X %04X %04X %04X %04X %04X %04X %04X %04X %04X %04X %04X %04X %04X %04X\n", unpack("n16", $hid));
+    printf("Hver: %04X\nProdID: %04X\nProtID: %04X\nFuncID: %04X\nFver: %04X\nCseg: %04X\nCsize: %04X\n",
+	   $hver, $prodid, $protid, $funcid, $fver, $cseg, $csize);
 }
 
 # populate @partitions based on the default partition table
@@ -434,6 +438,7 @@ sub buildPartitionTable {
     my(@partitions) = @_;
 
     my($flash_start) = 0x50000000;
+    my($payload_offset) = 0x1000;
     my($partition_data) = '';
 
     map {
@@ -449,8 +454,9 @@ sub buildPartitionTable {
 		# Explicitly terminate the partition data.
 		$partition_data .= pack("C",0xff) x 0x100;
 		if(defined $_->{'payload_data'}){
-		    $_->{'data'} = padBytes($partition_data, 0x2000) .
-			padBytes(pack("N4",length($_->{'payload_data'})).$_->{'payload_data'}, $_->{'size'} - 0x2000);
+		    $_->{'data'} = padBytes($partition_data, $payload_offset) .
+			padBytes(pack("N4",length($_->{'payload_data'})).$_->{'payload_data'},
+				 $_->{'size'} - $payload_offset);
 		}
 		else {
 		    $_->{'data'} = padBytes($partition_data, $_->{'size'});
