@@ -49,7 +49,7 @@ sub padBytes {
     my($pad_len) = $total_len - length($data);
 
     if (length($data) > $total_len) {
-	die "Internal error: data is longer than total_len";
+	die "padBytes error: data is longer than total_len";
     }
 
     return $data . ($pad_char x $pad_len);
@@ -74,15 +74,60 @@ sub numBlocks {
 }
 
 # Pack the name, address, and size of a partition entry into binary form.
-sub partitionEntry {
+sub createPartitionEntry {
     my($name, $flash_base, $size) = @_;
 
     my($zero_long) = 0x0000;
 
     # my($num_blocks) = $size / 0x00020000;
-    # printf("partitionEntry: %s\t0x%08X\t0x%08X\t%d\n", $name, $flash_base, $size, $num_blocks);
+    # printf("createPartitionEntry: %s\t0x%08X\t0x%08X\t%d\n", $name, $flash_base, $size, $num_blocks);
 
     return pack("a16N5x212N2",$name,$flash_base,$zero_long,$size,$zero_long,$zero_long,$zero_long,$zero_long);
+}
+
+# parse partition entry and return $name, $offset, $size . return 0 on partition terminator
+sub parsePartitionEntry {
+    my($partition_entry) = @_;
+
+    print "parsePartitionEntry\n";
+
+    my($flash_start) = 0x50000000;
+    my($entry_len) = 0x100;
+    length($partition_entry) eq $entry_len or die "parsePartitionEntry: partition entry length is not $entry_len!\n";
+
+    my($name, $flash_base, $size, $zero_long, $padding);
+    ($name, $flash_base, $zero_long, $size, $zero_long, $zero_long, $padding, $zero_long, $zero_long) =
+	unpack("a16N5x212N2",$partition_entry);
+
+    if(unpack("C", $name) eq 0xff){
+	print "parsePartitionEntry: found terminator\n";
+	return 0;
+    }
+    # remove trailing nulls from $name
+    $name =~ s/\000+//;
+    return($name, $flash_base - $flash_start, $size);
+}
+
+# return partition table from data is one exists, otherwise return 0
+sub findPartitionTable {
+    my($data_buf) = @_;
+
+    unpack("a7", $data_buf) eq 'RedBoot' or return 0;
+    return substr($data_buf, 0, 0x1000)
+}
+
+# parse partition table and return ({$name, $offset, $size}, ...)
+sub parsePartitionTable {
+    my($partition_table) = @_;
+
+    my(@partitions);
+    my(@fields);
+    my($partition_count) = 0;
+    while ((@fields = parsePartitionEntry(substr($partition_table, $partition_count * 0x100, 0x100))) eq 3){
+	printf("%s\t0x%08X\t0x%08X\n", @fields);
+	$partitions[$partition_count++] = [@fields];
+    }
+    return(@partitions);
 }
 
 # Create an empty jffs2 block.
@@ -113,21 +158,39 @@ sub trailerData {
     return pack("n4a6n",$product_id,$protocol_id,$firmware_version,$unknown1,$magic_number,$unknown2);
 }
 
-# Read in an 8MB firmware file, and store the data into @partitions.
-# Note that the data is only stored in a partition if 'offset' and 'size' are defined.
-sub readInFirmware {
-    my($filename, @partitions) = @_;
+# print contents of sercomm redboot trailer
+sub printRedbootTrailer {
+    my($redboot_data) = @_;
 
-    my($firmware_buf);
-    my($total_length)   = 0x800000;
+    my($correct_redboot_len) = 0x40000;
+    my($redboot_data_len) = length($redboot_data);
 
-    open FILE,$filename or die "Can't find firmware image \"$filename\": $!\n";
+    if($redboot_data_len != $correct_redboot_len){
+	printf("Redboot length (0x%08X) is not 0x%08X\n", $redboot_data_len, $correct_redboot_len);
+	return;
+    }
 
-    read FILE,$firmware_buf,$total_length or die "Can't read $total_length bytes from \"$filename\": $!\n";
+    my($redboot_trailer) = substr($redboot_data, -80);
+
+    writeOut($redboot_trailer, 'RedbootTrailer');
+
+    my($mac_addr0, $mac_addr1, $mac_addr2, $unknown, $prefix, $ver_ctrl, $down_ctrl, $hid, $hver, $prodid, $prodidmask,
+       $protid, $protidmask, $funcid, $funcidmask, $fver, $cseg, $csize, $postfix) =
+	   unpack("n3Na7n2a32n10a7",$redboot_trailer);
+
+    printf("MAC address is %04X%04X%04X\n", $mac_addr0, $mac_addr1, $mac_addr2);
+    printf("unknown: %08X\n", $unknown);
+    printf("%s:%04X:%04X:%s\n", $prefix, $ver_ctrl, $down_ctrl, $postfix);
+}
+
+# populate @partitions based on the default partition table
+sub useDefaultPartitions {
+    my($firmware_buf, $partitions_ref) = @_;
+
+    print 'useDefaultPartitions: ',length($firmware_buf),' ', scalar(@$partitions_ref),"\n";
 
     # Read the parts of the firmware file into the partitions table.
     map {
-
 	if (defined $_->{'offset'} and defined $_->{'size'}) {
 
 	    # Grab the whole partition, using the maximum size.
@@ -146,16 +209,63 @@ sub readInFirmware {
 		    $_->{'size'} = paddedSize($size);
 		}
 	    }
-
-	    print("Read ", sprintf("0x%08X", length($_->{'data'})), " bytes from \"",
-		  $filename, "\" into <", $_->{'name'}, ">\n");
+	    printf("Read 0x%08X bytes into <%s>\n", length($_->{'data'}), $_->{'name'});
 	}
+    } @$partitions_ref;
+}
 
-    } @partitions;
+# populate @partitions based on the firmware's partition table
+sub useFirmwarePartitions {
+    my($firmware_buf, $partitions_ref) = @_;
 
+    print 'useFirmwarePartitions: ',length($firmware_buf),' ', scalar(@$partitions_ref),"\n";
+
+    # we know that partition table, if it exists, begins at start of 'FIS directory' and has max length 0x1000
+    my($partition_table);
+    map {
+	$_->{'name'} eq 'FIS directory' and
+	    $partition_table = findPartitionTable(substr($firmware_buf, $_->{'offset'}, $_->{'size'}));
+    } @$partitions_ref;
+
+    # return 0 here if no partition table in FIS directory
+    return 0 if not $partition_table;
+
+    # don't want any default partitions hanging around
+    @$partitions_ref = ();
+
+    my($partition_count) = 0;
+    map {
+	printf("%s\t%08X\t%08X\n", @$_);
+	$partitions_ref->[$partition_count] = {'name'=>$_->[0], 'offset'=>$_->[1], 'size'=>$_->[2], 'file'=>$_->[0]};
+	if($_->[0] eq 'Kernel' or $_->[0] eq 'Ramdisk'){
+	    my($data_len) =  unpack("N", substr($firmware_buf, $_->[1]));
+	    printf("%s has data length 0x%08X\n",$partitions_ref->[$partition_count]->{'name'} , $data_len);
+	    $partitions_ref->[$partition_count]->{'data'}   = substr($firmware_buf, $_->[1] + 16, $data_len);
+	}
+	else {
+	    $partitions_ref->[$partition_count]->{'data'}   = substr($firmware_buf, $_->[1], $_->[2]);
+	}
+	$partition_count++;
+    } parsePartitionTable($partition_table);
+
+    # need to add Trailer entry?
+
+    return 1;
+}
+
+# Read in an 8MB firmware file, and store the data into @partitions.
+# Note that the data is only stored in a partition if 'offset' and 'size' are defined. (fix this comment)
+sub readInFirmware {
+    my($filename, $partitions_ref) = @_;
+
+    my($firmware_buf);
+    my($total_length)   = 0x800000;
+
+    open FILE,$filename or die "Can't find firmware image \"$filename\": $!\n";
+    read FILE,$firmware_buf,$total_length or die "Can't read $total_length bytes from \"$filename\": $!\n";
     close FILE or die "Can't close \"$filename\": $!\n";
 
-    return;
+    useFirmwarePartitions($firmware_buf, $partitions_ref) or useDefaultPartitions($firmware_buf, $partitions_ref);
 }
 
 # Write the partition data stored in memory out into the files associated with each.
@@ -196,6 +306,9 @@ sub readInFirmwareParts {
 	    # Slurp in the data
 	    $_->{'data'} = <FILE>;
 
+	    # close the file
+	    close FILE or die "Can't close file \"$file\": $!\n";
+
 	    # Keep track of the actual size.
 	    my $size;
 
@@ -217,7 +330,14 @@ sub readInFirmwareParts {
 		  $_->{'file'}, "\" into <", $_->{'name'}, "> (", numBlocks($size), " blocks)\n");
 	}
 	else {
-#	    print "Skipping ", $_->{'name'}, "\n";
+	    # read in payload if defined
+	    if($_->{'name'} eq 'FIS directory' and defined $_->{'payload'}){
+		my($payload) = $_->{'payload'};
+		open PAYLOAD,$payload or die "Can't find payload \"$payload\": $!\n";
+		$_->{'payload_data'} = <PAYLOAD>;
+		close PAYLOAD or die "Can't close file \"$payload\": $!\n";
+		printf("Read 0x%08X bytes of payload data from \"$payload\"\n", length($_->{'payload_data'}));
+	    }
 	}
 
     } @partitions;
@@ -319,7 +439,7 @@ sub buildPartitionTable {
     my(@partitions) = @_;
 
     my($flash_start) = 0x50000000;
-    my($partition_data) = "";
+    my($partition_data) = '';
 
     map {
 
@@ -327,13 +447,19 @@ sub buildPartitionTable {
 	if (defined $_->{'offset'} and defined $_->{'size'}) {
 
 	    # Pack and append the binary table entry for this partition.
-	    $partition_data .= partitionEntry($_->{'name'}, $_->{'offset'} + $flash_start, $_->{'size'});
+	    $partition_data .= createPartitionEntry($_->{'name'}, $_->{'offset'} + $flash_start, $_->{'size'});
 
 	    # If this is the FIS directory, then write the partition table data into it.
 	    if ($_->{'name'} eq "FIS directory") {
 		# Explicitly terminate the partition data.
 		$partition_data .= pack("C",0xff) x 0x100;
-		$_->{'data'} = padBytes($partition_data, $_->{'size'});
+		if(defined $_->{'payload_data'}){
+		    $_->{'data'} = padBytes($partition_data, 0x2000) .
+			padBytes(pack("N4",length($_->{'payload_data'})).$_->{'payload_data'}, $_->{'size'} - 0x2000);
+		}
+		else {
+		    $_->{'data'} = padBytes($partition_data, $_->{'size'});
+		}
 	    }
 	}
 	else {
@@ -345,10 +471,10 @@ sub buildPartitionTable {
     return;
 }
 
-# parsePartitionTable: sanity check partition table - for testing but might evolve into setting @partitions
+# checkPartitionTable: sanity check partition table - for testing but might evolve into setting @partitions
 #    so that we can write out jffs2 partitions from a read image
 #    currently not nearly paranoid enough
-sub parsePartitionTable {
+sub checkPartitionTable {
     my($data) = @_;
 
     my($zero_long) = 0x0000;
@@ -490,7 +616,7 @@ sub defaultPartitions {
 
 my(@partitions) = defaultPartitions();
 
-my($unpack, $pack, $input, $output, $redboot, $kernel, $sysconf, $ramdisk, $fisdir, $trailer, $macaddr, $debug);
+my($unpack, $pack, $input, $output, $redboot, $kernel, $sysconf, $ramdisk, $fisdir, $trailer, $macaddr, $payload, $debug);
 
 if (!GetOptions("d|debug"      => \$debug,
 		"u|unpack"     => \$unpack,
@@ -504,6 +630,7 @@ if (!GetOptions("d|debug"      => \$debug,
 		"f|fisdir=s"   => \$fisdir,
 		"t|trailer=s"  => \$trailer,
 		"m|macaddr=s"  => \$macaddr,
+		"l|payload=s"  => \$payload,
 		) or (not defined $pack and not defined $unpack)) {
     print "Usage: slugimage <options>\n";
     print "\n";
@@ -519,6 +646,7 @@ if (!GetOptions("d|debug"      => \$debug,
     print "  [-f|--fisdir]   <file>		Input/Output FIS directory filename\n";
     print "  [-t|--trailer]  <file>		Input/Output Trailer filename\n";
     print "  [-m|--macaddr]  <MAC>		Set the MAC address in RedBoot\n";
+    print "  [-l|--payload]  <file>		Input/Output last block payload\n";
 
     # TODO: document --ramdisk syntax
 
@@ -531,6 +659,7 @@ if (defined $kernel)  { map { ($_->{'name'} eq 'Kernel')  	&& ($_->{'file'} = $k
 if (defined $sysconf) { map { ($_->{'name'} eq 'SysConf') 	&& ($_->{'file'} = $sysconf); } @partitions; }
 if (defined $fisdir)  { map { ($_->{'name'} eq 'FIS directory') && ($_->{'file'} = $fisdir);  } @partitions; }
 if (defined $trailer) { map { ($_->{'name'} eq 'Trailer')       && ($_->{'file'} = $trailer); } @partitions; }
+if (defined $payload) { map { ($_->{'name'} eq 'FIS directory') && ($_->{'payload'} = $payload); } @partitions; }
 if (defined $ramdisk) {
 
     # A single filename is used for the ramdisk filename
@@ -579,11 +708,14 @@ if (defined $ramdisk) {
 
 # Read in the firmware image
 if ($input) {
-    my $result = readInFirmware($input, @partitions);
+    my $result = readInFirmware($input, \@partitions);
 }
 
 # Unpack the firmware if requested
 if ($unpack) {
+#    map {
+#	($_->{'name'} eq 'FIS directory') and @partitions = checkPartitionTable($_->{'data'});
+#    } @partitions;
 
     writeOutFirmwareParts(@partitions);
 
@@ -602,6 +734,9 @@ if ($pack) {
     if ($debug) {
 	print "after readInFirmwareParts():\n";
 	printPartitions(@partitions);
+	map {
+	    ($_->{'name'} eq 'RedBoot') && (printRedbootTrailer($_->{'data'}));
+	} @partitions;
     }
     
     layoutPartitions(@partitions);
@@ -624,8 +759,8 @@ if ($pack) {
 	    }
 	} @partitions;
 
-	print "parsePartitionTable():\n";
-	parsePartitionTable($lastblock);
+	print "checkPartitionTable():\n";
+	checkPartitionTable($lastblock);
     }
     
     die "Output filename must be specified\n" unless defined $output;
