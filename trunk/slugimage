@@ -31,6 +31,14 @@ sub flashdiskPaddedSize {
     return 0x00680000 - ramdiskPaddedSize($ramdisk_len);
 }
 
+sub paddedSize {
+    my($data_len) = @_;
+
+    my($block_size) = 0x00020000;
+    use integer;
+    return ($data_len / $block_size) * $block_size + $block_size;
+}
+
 sub jffs2Block {
     return ffPad(pack("N3", 0x19852003, 0x0000000c, 0xf060dc98), 0x00020000);
 }
@@ -41,6 +49,21 @@ sub partitionEntry {
     my($zero_long) = 0x0000;
 
     return pack("a16N5x212N2",$name,$flash_base,$zero_long,$size,$zero_long,$zero_long,$zero_long,$zero_long);
+}
+
+sub newpartitionTable {
+    my($partitions) = @_;
+
+    my($partition, $field, $partition_data);
+    for $partition (@$partitions){
+	print "---------------------------\n";
+	for $field (sort keys %$partition){
+	    print $field,'=>',$partition->{$field},"\n";
+	}
+	$partition_data .= partitionEntry($partition->{'name'}, $partition->{'start'}, $partition->{'size'});
+    }
+    print "---------------------------\n";
+    return $partition_data;
 }
 
 sub partitionTable {
@@ -89,6 +112,45 @@ sub lastBlock {
     my($trailer_data)    = trailerData();
 
     return ffPad(partitionTable($ramdisk_len), $block_size - length($trailer_data)) . $trailer_data;
+}
+
+# layoutPartitions : this function must be ugly - it needs to verify Redboot, SysConf, Kernel, Ramdisk, and
+#     FIS directory partitions exist, are in the correct order, and do not have more data than can fit in
+#     their lengths (fixed for all but Ramdisk, which has a minimum length of one block).
+#     If Rootdisk and/or Userdisk exist, it must also verify that their block padded lengths are not
+#     too great for the available space.
+sub layoutPartitions {
+    my($partitions) = @_;
+
+    my($blocksize)     = 0x00020000;
+    my($flash_start)   = 0x50000000;
+    my($flash_len)     = 0x00800000;
+
+    my($redboot_start) = 0x00000000 + $flash_start;
+    my($redboot_len)   = 0x00040000;
+    my($sysconf_start) = $redboot_start + $redboot_len;
+    my($sysconf_len)   = 0x00020000;
+    my($kernel_start)  = $sysconf_start + $sysconf_len;
+    my($kernel_len)    = 0x00100000;
+    my($ramdisk_start) = $kernel_start + $kernel_len;
+
+    my($lastblock_start) = $flash_start + $flash_len - $blocksize;
+    my($lastblock_len)   = $blocksize;
+
+    # template codifies partition order and start and/or size values when they are fixed
+    my($template) = ({'name'=>'Redboot', 'start'=>$redboot_start, 'size'=>$redboot_len},
+		     {'name'=>'SysConf', 'start'=>$sysconf_start, 'size'=>$sysconf_len},
+		     {'name'=>'Kernel',  'start'=>$kernel_start,  'size'=>$kernel_len},
+		     {'name'=>'Ramdisk', 'start'=>$ramdisk_start},
+		     {'name'=>'Rootdisk'},
+		     {'name'=>'Userdisk'},
+		     {'name'=>'FIS directory', 'start'=>$lastblock_start, 'size'=>$lastblock_len});
+
+    #
+    # here we go through the $partitions array ref and fill in all the values
+    #
+
+    return $partitions;
 }
 
 sub readInFirmware{
@@ -198,3 +260,12 @@ writeOut($jffs2_block x 24, 'Flashdisk.myjffs2');
 
 writeOut(packImage($redboot_buf, $sysconf_buf, $kernel_buf, $ramdisk_buf, $flashdisk_buf), 'FirmwareImage');
 
+my(@partitions) = ({'name'=>'Redboot', 'start'=>0x50000000,'size'=>0x00040000,'data'=>'abcd'},
+		   {'name'=>'SysConf', 'start'=>0x50040000,'size'=>0x00020000,'data'=>'efgh'},
+		   {'name'=>'Kernel',  'start'=>0x50060000,'size'=>0x00100000,'data'=>'ijkl'},
+		   {'name'=>'Ramdisk', 'start'=>0x50160000,'size'=>0x00020000,'data'=>'mnop'},
+		   {'name'=>'Rootdisk','start'=>0x50180000,'size'=>0x00100000,'data'=>'qrst'},
+		   {'name'=>'Userdisk','start'=>0x50280000,'size'=>0x00560000,'data'=>'uvwx'},
+		   {'name'=>'FIS directory','start'=>0x507e0000,'size'=>0x00020000,'data'=>'yz12'});
+
+newpartitionTable(\@partitions);
