@@ -9,6 +9,7 @@ use warnings;
 
 use Getopt::Long;
 
+# Take $data, and pad it out to $total_len bytes, appending 0xff's.
 sub padBytes {
     my($data,$total_len) = @_;
 
@@ -18,6 +19,7 @@ sub padBytes {
     return $data . ($pad_char x $pad_len);
 }
 
+# Return the next multiple of block_size larger than or equal to $data_len.
 sub paddedSize {
     my($data_len) = @_;
 
@@ -26,6 +28,7 @@ sub paddedSize {
     return (($data_len - 1) / $block_size) * $block_size + $block_size;
 }
 
+# Return the number of block_size blocks required to hold $data_len.
 sub numBlocks {
     my($data_len) = @_;
 
@@ -34,6 +37,7 @@ sub numBlocks {
     return (($data_len - 1) / $block_size) + 1;
 }
 
+# Pack the name, address, and size of a partition entry into binary form.
 sub partitionEntry {
     my($name, $flash_base, $size) = @_;
 
@@ -45,10 +49,12 @@ sub partitionEntry {
     return pack("a16N5x212N2",$name,$flash_base,$zero_long,$size,$zero_long,$zero_long,$zero_long,$zero_long);
 }
 
+# Create an empty jffs2 block.
 sub jffs2Block {
     return padBytes(pack("N3", 0x19852003, 0x0000000c, 0xf060dc98), 0x00020000);
 }
 
+# Write out $data to $filename,
 sub writeOut {
     my($data, $filename) = @_;
 
@@ -59,6 +65,7 @@ sub writeOut {
     close FILE or die "Can't close file \"$filename\": $!\n";
 }
 
+# Not used at the moment.
 sub trailerData {
     my($product_id)       = 0x0001;
     my($protocol_id)      = 0x0000;
@@ -70,6 +77,8 @@ sub trailerData {
     return pack("n4a6n",$product_id,$protocol_id,$firmware_version,$unknown1,$magic_number,$unknown2);
 }
 
+# Read in an 8MB firmware file, and store the data into @partitions.
+# Note that the data is only stored in a partition if 'offset' and 'size' are defined.
 sub readInFirmware {
     my($filename, @partitions) = @_;
 
@@ -88,10 +97,15 @@ sub readInFirmware {
 	    # Grab the whole partition, using the maximum size.
 	    $_->{'data'} = substr($firmware_buf, $_->{'offset'}, $_->{'size'});
 
-	    # For those partitions which can be smaller, read the length and truncate the data.
+	    # Handle those partitions which can be smaller.
 	    if (($_->{'name'} eq 'Kernel') or ($_->{'name'} eq 'Ramdisk')) {
+
+		# Read the length, remove it from the start of the data, and
+		# truncate the data according to the length.
 		my $size = unpack("N", $_->{'data'});
 		$_->{'data'} = substr($_->{'data'}, 16, $size);
+
+		# Size the Ramdisk partition to the next block boundary.
 		if ($_->{'name'} eq 'Ramdisk') {
 		    $_->{'size'} = paddedSize($size);
 		}
@@ -108,12 +122,14 @@ sub readInFirmware {
     return;
 }
 
+# Write the partition data stored in memory out into the files associated with each.
 sub writeOutFirmwareParts {
     my(@partitions) = @_;
 
     # Write out the parts of the firmware file.
     map {
 
+	# We can only write if 'data' and 'file' are defined.
 	if (defined $_->{'data'} and defined $_->{'file'}) {
 	    writeOut($_->{'data'}, $_->{'file'});
 	    print("Wrote ", sprintf("0x%08X", length($_->{'data'})), " bytes from <",
@@ -129,6 +145,7 @@ sub writeOutFirmwareParts {
     return;
 }
 
+# Read in the partition data from the files associated with each and store in memory.
 sub readInFirmwareParts {
     my(@partitions) = (@_);
     
@@ -139,8 +156,14 @@ sub readInFirmwareParts {
 	my $file = $_->{'file'};
 	if (defined $file) {
 	    open FILE,$file or die "Can't find firmware part \"$file\": $!\n";
+
+	    # Slurp in the data
 	    $_->{'data'} = <FILE>;
+
+	    # If the partition does not have a fixed size, the calculate the size.
 	    if (not defined $_->{'size'}) {
+
+		# For the Ramdisk, we need to account for the length header.
 		if ($_->{'name'} eq 'Ramdisk') {
 		    $_->{'size'} = paddedSize(16 + length($_->{'data'}));
 		}
@@ -148,6 +171,7 @@ sub readInFirmwareParts {
 		    $_->{'size'} = paddedSize(length($_->{'data'}));
 		}
 	    }
+
 	    print("Read ", sprintf("0x%08X", length($_->{'data'})), " bytes from \"",
 		  $_->{'file'}, "\" into <", $_->{'name'}, ">\n");
 	}
@@ -179,12 +203,15 @@ sub layoutPartitions {
     # here we go through the $partitions array ref and fill in all the values
     #
 
+    # This points to where the next partition should be placed.
     my $pointer = $flash_start;
 
     map {
 
+	# Handle requests for partition creation first.
 	if (defined $_->{'size'} and not defined $_->{'data'} and ($_->{'name'} ne "FIS directory")) {
 
+	    # A zero size is a request to fill all available space.
 	    if ($_->{'size'} == 0) {
 		$_->{'size'} = paddedSize($partitions[-2]->{'offset'} + $flash_start - $pointer);
 	    }
