@@ -236,7 +236,20 @@ sub writeOut {
     close FILE;
 }
 
-my($firmware) = 'unslung-able-nslu2-20041111151629.img';
+my($pack, $unpack, $firmware, $redboot, $kernel, $sysconf, $ramdisk, $trailer, $macaddr);
+
+my $result = GetOptions("p|pack"      => \$pack,
+			"u|unpack"    => \$unpack,
+			"i|image=s"   => \$firmware,
+			"r|redboot=s" => \$redboot,
+			"k|kernel=s"  => \$kernel,
+			"s|sysconf=s" => \$sysconf,
+			"r|ramdisk=s" => \$ramdisk,
+			"t|trailer=s" => \$trailer,
+			"m|macaddr=s" => \$macaddr,
+			);
+
+$firmware ||= 'unslung-able-nslu2-20041111151629.img';
 
 my($redboot_buf, $sysconf_buf, $kernel_buf, $ramdisk_buf) = readInFirmware($firmware);
 
@@ -273,3 +286,5 @@ my(@partitions) = ({'name'=>'RedBoot', 'start'=>0x50000000,'size'=>0x00040000,'d
 		   {'name'=>'FIS directory','start'=>0x507e0000,'size'=>0x00020000,'data'=>'yz12'});
 
 newpartitionTable(\@partitions);
+
+
