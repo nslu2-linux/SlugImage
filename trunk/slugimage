@@ -723,7 +723,8 @@ if (defined $ethaddr) {
 	    if (($ethaddr !~ m/^[0-9A-Fa-f]+$/) or (length($ethaddr) != 12)) {
 		die "Invalid ethernet address specification: '".$ethaddr."'\n";
 	    }
-	    $_->{'data'} = pack("H6", "0x".$ethaddr);
+	    $_->{'data'} = pack("H12", $ethaddr);
+	    printf("ethaddr is \'%s\'\n", $_->{'data'});
 	}
     } @partitions;
 }
