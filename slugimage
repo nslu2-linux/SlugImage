@@ -216,12 +216,14 @@ sub writeImage {
 
 	if ($_->{'offset'} > $pointer) {
 	    $image_buf .= padBytes("", $_->{'offset'} - $pointer);
-	    print("Padded ", sprintf("0x%08X", length($image_buf) - $pointer), " bytes forward in \"", $filename, "\"\n");
+	    print("Padded ", sprintf("0x%08X", length($image_buf) - $pointer), " bytes before <",
+		  $_->{'name'}, "> in \"", $filename, "\"\n");
 	    $pointer = length($image_buf);
 	}
 	elsif ($_->{'offset'} < $pointer) {
 	    $image_buf = substr($image_buf, 0, $_->{'offset'});
-	    print("Rewound ", sprintf("0x%08X", $pointer - $_->{'offset'}), " bytes backwards in \"", $filename, "\"\n");
+	    print("Rewound ", sprintf("0x%08X", $pointer - $_->{'offset'}), " bytes before <",
+		  $_->{'name'}, "> in \"", $filename, "\"\n");
 	    $pointer = length($image_buf);
 	}
 
