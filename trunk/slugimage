@@ -158,7 +158,7 @@ sub layoutPartitions {
 }
 
 sub readInFirmware{
-    my($filename) = @_;
+    my($filename, $partitions) = @_;
 
     my($firmware_buf);
 
@@ -236,6 +236,15 @@ sub writeOut {
     close FILE;
 }
 
+my(@partitions) =
+    ({'name'=>'RedBoot',      'start'=>0x50000000,'size'=>0x00040000,'data'=>'abcd'},
+     {'name'=>'SysConf',      'start'=>0x50040000,'size'=>0x00020000,'data'=>'efgh'},
+     {'name'=>'Kernel',       'start'=>0x50060000,'size'=>0x00100000,'data'=>'ijkl'},
+     {'name'=>'Ramdisk',      'start'=>0x50160000,'size'=>0x006a0000,'data'=>'mnop'},
+#    {'name'=>'Rootdisk',     'start'=>0x50180000,'size'=>0x00100000,'data'=>'qrst'},
+#    {'name'=>'Userdisk',     'start'=>0x50280000,'size'=>0x00560000,'data'=>'uvwx'},
+     {'name'=>'FIS directory','start'=>0x507e0000,'size'=>0x00020000,'data'=>'yz12'});
+
 my($pack, $unpack, $firmware, $redboot, $kernel, $sysconf, $ramdisk, $trailer, $macaddr);
 
 my $result = GetOptions("p|pack"      => \$pack,
@@ -249,12 +258,17 @@ my $result = GetOptions("p|pack"      => \$pack,
 			"m|macaddr=s" => \$macaddr,
 			);
 
+# temporary
 $firmware ||= 'unslung-able-nslu2-20041111151629.img';
 
-my($redboot_buf, $sysconf_buf, $kernel_buf, $ramdisk_buf) = readInFirmware($firmware);
+# TODO: go through the partition options, and set the names and files in @partitions
+
+# TODO: instead of returning the _buf variables, put the data in @partitions
+my($redboot_buf, $sysconf_buf, $kernel_buf, $ramdisk_buf) = readInFirmware($firmware, \@partitions);
 
 print "there is space for a ",flashdiskPaddedSize(length($ramdisk_buf))," byte Flashdisk partition\n";
 
+# TODO: loop through @partitions, and write out anything that has data
 writeOut($redboot_buf, 'RedBoot');
 writeOut($sysconf_buf, 'SysConf');
 writeOut($kernel_buf,  'Kernel');
@@ -276,14 +290,6 @@ my($jffs2_block) = jffs2Block();
 writeOut($jffs2_block x 24, 'Flashdisk.myjffs2');
 
 writeOut(packImage($redboot_buf, $sysconf_buf, $kernel_buf, $ramdisk_buf, $flashdisk_buf), 'FirmwareImage');
-
-my(@partitions) = ({'name'=>'RedBoot', 'start'=>0x50000000,'size'=>0x00040000,'data'=>'abcd'},
-		   {'name'=>'SysConf', 'start'=>0x50040000,'size'=>0x00020000,'data'=>'efgh'},
-		   {'name'=>'Kernel',  'start'=>0x50060000,'size'=>0x00100000,'data'=>'ijkl'},
-		   {'name'=>'Ramdisk', 'start'=>0x50160000,'size'=>0x00020000,'data'=>'mnop'},
-		   {'name'=>'Rootdisk','start'=>0x50180000,'size'=>0x00100000,'data'=>'qrst'},
-		   {'name'=>'Userdisk','start'=>0x50280000,'size'=>0x00560000,'data'=>'uvwx'},
-		   {'name'=>'FIS directory','start'=>0x507e0000,'size'=>0x00020000,'data'=>'yz12'});
 
 newpartitionTable(\@partitions);
 
