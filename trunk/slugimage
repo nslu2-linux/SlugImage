@@ -12,7 +12,7 @@ use Getopt::Long;
 sub padBytes {
     my($data,$total_len) = @_;
 
-    my($pad_char) = pack("C",0x00);
+    my($pad_char) = pack("C",0xff);
     my($pad_len) = $total_len - length($data);
 
     return $data . ($pad_char x $pad_len);
@@ -38,6 +38,9 @@ sub partitionEntry {
     my($name, $flash_base, $size) = @_;
 
     my($zero_long) = 0x0000;
+
+    my($num_blocks) = $size / 0x00020000;
+    printf("partitionEntry: %s\t0x%08X\t0x%08X\t%d\n", $name, $flash_base, $size, $num_blocks);
 
     return pack("a16N5x212N2",$name,$flash_base,$zero_long,$size,$zero_long,$zero_long,$zero_long,$zero_long);
 }
@@ -134,7 +137,7 @@ sub readInFirmwareParts {
 	if (defined $file) {
 	    open FILE,$file or die "Can't find firmware part \"$file\": $!\n";
 	    $_->{'data'} = <FILE>;
-	    $_->{'size'} = length($_->{'data'});
+#	    $_->{'size'} = length($_->{'data'}); # size is for partition size - not data length
 	    print("Read ", sprintf("0x%08X", length($_->{'data'})), " bytes from \"",
 		  $_->{'file'}, "\" into <", $_->{'name'}, ">\n");
 	}
@@ -187,17 +190,21 @@ sub layoutPartitions {
 
 	}
 
+	if ($_->{'name'} eq 'Ramdisk') {
+	    $_->{'size'} = paddedSize(length('data') + 16);
+	}
+
 	if (defined $_->{'size'} and ($_->{'name'} ne "Trailer")) {
 
 	    my $size = $_->{'size'};
 
-	    if ($_->{'name'} eq "Kernel") {
-		$size = 0x100000;
-	    }
+#	    if ($_->{'name'} eq "Kernel") {
+#		$size = 0x100000;
+#	    }
 
-	    if ($_->{'name'} eq 'Ramdisk') {
-		$size += 16;
-	    }
+#	    if ($_->{'name'} eq 'Ramdisk') {
+#		$size += 16;
+#	    }
 
 	    # Determine the start and offset of the current partition.
 	    if (defined $_->{'offset'}) {
@@ -228,17 +235,19 @@ sub layoutPartitions {
 sub buildPartitionTable {
     my(@partitions) = @_;
 
-    my $partition_data = "";
+    my($flash_start) = 0x50000000;
+    my($partition_data) = "";
 
     map {
 
 	if (defined $_->{'offset'} and defined $_->{'size'}) {
 
+#	    $partition_data .= partitionEntry($_->{'name'}, $_->{'offset'} + $flash_start, $_->{'size'});
 	    $partition_data .= partitionEntry($_->{'name'}, $_->{'offset'}, $_->{'size'});
 
 	    # If this is the FIS directory, then write the partition table data into it.
 	    if ($_->{'name'} eq "FIS directory") {
-		$_->{'data'} = $partition_data;
+		$_->{'data'} = padBytes($partition_data, $_->{'size'});
 	    }
 	}
 	else {
@@ -249,6 +258,33 @@ sub buildPartitionTable {
 
     return;
 }
+
+# parsePartitionTable: sanity check partition table - for testing but might evolve into setting @partitions
+#    so that we can write out jffs2 partitions from a read image
+#    currently not nearly paranoid enough
+sub parsePartitionTable {
+    my($data) = @_;
+
+    my($zero_long) = 0x0000;
+
+
+    my($pointer) = 0;
+    my($entry);
+
+    my($name, $flash_base, $size, $done, $padding);
+    do {
+	$entry = substr($data, $pointer, 0x100);
+
+	($name,$flash_base,$zero_long,$size,$zero_long,$zero_long,$padding,$zero_long,$zero_long) = unpack("a16N5x212N2",$entry);
+	printf("pointer: %d\tname: %s\tflash_base: 0x%08X\tsize: 0x%08X\n", $pointer, $name, $flash_base, $size);
+	$pointer += 0x100;
+	printf("terminator: 0x%08X\n", unpack("C", substr($data, $pointer, 1)));
+	if(unpack("C", substr($data, $pointer, 1)) eq 0xff){
+	    $done = 1;
+	}
+    } until $done;
+}
+
 
 sub writeOutFirmware {
     my($filename, @partitions) = @_;
@@ -308,6 +344,29 @@ sub writeOutFirmware {
 }
 
 
+sub printPartitions {
+    my(@partitions) = @_;
+
+    my($offset, $size);
+    map {
+#	defined $_->{'size'} ? $size = $_->{'size'} : $size = 'undef';
+
+	if(defined  $_->{'size'}){
+	    $size = $_->{'size'};
+	}
+	else {
+	    $size = 'undef';
+	}
+	if(defined  $_->{'offset'}){
+	    $offset = $_->{'offset'};
+	}
+	else {
+	    $offset = 'undef';
+	}
+	printf("%s\t0x%08X\t0x%08X\n", $_->{'name'}, $offset, $size);
+    } @partitions;
+}
+
 sub defaultPartitions {
 
     # Note that other routines make assumptions that this table will stay in the current order, with
@@ -318,7 +377,7 @@ sub defaultPartitions {
     return ({'name'=>'RedBoot',      'file'=>'Redboot',   'offset'=>0x00000000,'size'=>0x00040000,'data'=>undef},
 	    {'name'=>'SysConf',      'file'=>'SysConf',   'offset'=>0x00040000,'size'=>0x00020000,'data'=>undef},
 	    {'name'=>'Kernel',       'file'=>'vmlinuz',   'offset'=>0x00060000,'size'=>0x00100000,'data'=>undef},
-	    {'name'=>'Ramdisk',      'file'=>'ramdisk.gz','offset'=>0x00160000,'size'=>0x006a0000,'data'=>undef},
+	    {'name'=>'Ramdisk',      'file'=>'ramdisk.gz','offset'=>0x00160000,'size'=>undef     ,'data'=>undef},
 	    {'name'=>'FIS directory','file'=>undef,       'offset'=>0x007e0000,'size'=>0x00020000,'data'=>undef},
 	    {'name'=>'Trailer',      'file'=>'Trailer',   'offset'=>0x007ffff0,'size'=>0x00000010,'data'=>undef},
 	    );
@@ -434,11 +493,30 @@ if ($unpack) {
 if ($pack) {
 
     my $result = readInFirmwareParts(@partitions);
+
+    print "after readInFirmwareParts():\n";
+    printPartitions(@partitions);
     
     layoutPartitions(@partitions);
 
+    print "after layoutPartitions():\n";
+    printPartitions(@partitions);
+    
     buildPartitionTable(@partitions);
 
+    print "after buildPartitionTable():\n";
+    printPartitions(@partitions);
+
+    my($lastblock);
+    map {
+	if($_->{'name'} eq 'FIS directory'){
+	    $lastblock = $_->{'data'};
+	}
+    } @partitions;
+
+    print "parsePartitionTable():\n";
+    parsePartitionTable($lastblock);
+    
     writeOutFirmware($output, @partitions);
 
 }
