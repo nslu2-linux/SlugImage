@@ -455,8 +455,7 @@ sub layoutPartitions {
 		$_->{'start'} = $flash_start + $_->{'offset'};
 
 		# Keep the user appraised ...
-		$quiet or printf("%s <%s> from 0x%08X to 0x%08X (%s)\n",
-				 $_->{'pseudo'} ? "Inserted" : "Allocated",
+		$quiet or printf("Allocated <%s> from 0x%08X to 0x%08X (%s)\n",
 				 $_->{'name'}, $_->{'start'}, $_->{'start'} + $_->{'size'},
 				 ($_->{'size'} >= $block_size ?
 				  sprintf("%d blocks", numBlocks($_->{'size'})) :
@@ -469,8 +468,7 @@ sub layoutPartitions {
 		$_->{'offset'} = $_->{'start'} - $flash_start;
 
 		# Keep the user appraised ...
-		$quiet or printf("%s <%s> from 0x%08X to 0x%08X (%s)\n",
-				 $_->{'pseudo'} ? "Inserted" : "Allocated",
+		$quiet or printf("Allocated <%s> from 0x%08X to 0x%08X (%s)\n",
 				  $_->{'name'}, $_->{'start'}, $_->{'start'} + $_->{'size'},
 				 ($_->{'size'} >= $block_size ?
 				  sprintf("%d blocks", numBlocks($_->{'size'})) :
@@ -521,7 +519,7 @@ sub buildPartitionTable {
 			      sprintf("0x%05X bytes", $_->{'size'})));
 	}
 	else {
-	    $quiet or print "No table entry required for <", $_->{'name'}, ">\n";
+	    $debug and print "No table entry required for <", $_->{'name'}, ">\n";
 	}
 
     } @partitions;
@@ -642,7 +640,7 @@ sub defaultPartitions {
     return ({'name'=>'RedBoot',           'file'=>'Redboot',
 	     'offset'=>0x00000000,        'size'=>0x00040000,
 	     'variable'=>0, 'header'=>0,  'pseudo'=>0, 'data'=>undef},
-	    {'name'=>'MAC Address',       'file'=>undef,
+	    {'name'=>'EthAddr',           'file'=>undef,
 	     'offset'=>0x0003ffb0,        'size'=>0x00000006,
 	     'variable'=>0, 'header'=>0,  'pseudo'=>1, 'data'=>undef},
 	    {'name'=>'SysConf',           'file'=>'SysConf',
@@ -671,7 +669,7 @@ sub defaultPartitions {
 
 my(@partitions) = defaultPartitions();
 
-my($unpack, $pack, $input, $output, $redboot, $kernel, $sysconf, $ramdisk, $fisdir, $trailer, $macaddr, $payload);
+my($unpack, $pack, $input, $output, $redboot, $kernel, $sysconf, $ramdisk, $fisdir, $trailer, $ethaddr, $payload);
 
 if (!GetOptions("d|debug"      => \$debug,
 		"q|quiet"      => \$quiet,
@@ -684,9 +682,9 @@ if (!GetOptions("d|debug"      => \$debug,
 		"s|sysconf=s"  => \$sysconf,
 		"r|ramdisk=s"  => \$ramdisk,
 		"f|fisdir=s"   => \$fisdir,
-		"t|trailer=s"  => \$trailer,
-		"m|macaddr=s"  => \$macaddr,
 		"l|payload=s"  => \$payload,
+		"t|trailer=s"  => \$trailer,
+		"e|ethaddr=s"  => \$ethaddr,
 		) or (not defined $pack and not defined $unpack)) {
     print "Usage: slugimage <options>\n";
     print "\n";
@@ -701,9 +699,9 @@ if (!GetOptions("d|debug"      => \$debug,
     print "  [-s|--sysconf]  <file>		Input/Output SysConf filename\n";
     print "  [-r|--ramdisk]  <file>		Input/Output Ramdisk filename(s)\n";
     print "  [-f|--fisdir]   <file>		Input/Output FIS directory filename\n";
+    print "  [-l|--payload]  <file>		Input/Output Payload filename\n";
     print "  [-t|--trailer]  <file>		Input/Output Trailer filename\n";
-    print "  [-m|--macaddr]  <MAC>		Set the MAC address in RedBoot\n";
-    print "  [-l|--payload]  <file>		Input/Output last block payload\n";
+    print "  [-e|--ethaddr]  <AABBCCDDEEFF>	Set the Ethernet address\n";
 
     # TODO: document --ramdisk syntax
 
@@ -717,6 +715,19 @@ if (defined $sysconf) { map { ($_->{'name'} eq 'SysConf') 	&& ($_->{'file'} = $s
 if (defined $fisdir)  { map { ($_->{'name'} eq 'FIS directory') && ($_->{'file'} = $fisdir);  } @partitions; }
 if (defined $payload) { map { ($_->{'name'} eq 'Payload')       && ($_->{'file'} = $payload); } @partitions; }
 if (defined $trailer) { map { ($_->{'name'} eq 'Trailer')       && ($_->{'file'} = $trailer); } @partitions; }
+
+if (defined $ethaddr) {
+    map {
+	if ($_->{'name'} eq 'EthAddr') {
+	    $ethaddr =~ s/://g;
+	    if (($ethaddr !~ m/^[0-9A-Fa-f]+$/) or (length($ethaddr) != 12)) {
+		die "Invalid ethernet address specification: '".$ethaddr."'\n";
+	    }
+	    $_->{'data'} = pack("H6", "0x".$ethaddr);
+	}
+    } @partitions;
+}
+
 if (defined $ramdisk) {
 
     # A single filename is used for the ramdisk filename
