@@ -379,8 +379,11 @@ sub readInFirmwareParts {
 	    if ($_->{'header'}) {
 		$size = paddedSize($_->{'header'} + length($_->{'data'}));
 	    }
-	    else {
+	    elsif (not $_->{'pseudo'}) {
 		$size = paddedSize(length($_->{'data'}));
+	    }
+	    else {
+		$size = length($_->{'data'});
 	    }
 
 	    # If the partition does not have a fixed size, the calculate the size.
@@ -389,11 +392,14 @@ sub readInFirmwareParts {
 	    }
 
 	    # Keep the user appraised ...
-	    $quiet or printf("Read 0x%08X bytes from \"%s\" into <%s> (%s)\n",
+	    $quiet or printf("Read 0x%08X bytes from \"%s\" into <%s> (%s / %s)\n",
 			     length($_->{'data'}), $_->{'file'}, $_->{'name'},
 			     ($size >= $block_size ?
 			      sprintf("%d blocks", numBlocks($size)) :
-			      sprintf("0x%05X bytes", $size)));
+			      sprintf("0x%05X bytes", $size)),
+			     ($_->{'size'} >= $block_size ?
+			      sprintf("%d blocks", numBlocks($_->{'size'})) :
+			      sprintf("0x%05X bytes", $_->{'size'})));
 	}
 
     } @partitions;
@@ -483,9 +489,14 @@ sub layoutPartitions {
 	    if (defined $_->{'offset'}) {
 		$_->{'start'} = $flash_start + $_->{'offset'};
 
+		my $size = defined $_->{'data'} ? length($_->{'data'}) : 0;
+
 		# Keep the user appraised ...
-		$debug and printf("Allocated <%s> from 0x%08X to 0x%08X (%s)\n",
+		$debug and printf("Allocated <%s> from 0x%08X to 0x%08X (%s / %s)\n",
 				  $_->{'name'}, $_->{'start'}, $_->{'start'} + $_->{'size'},
+				  ($size >= $block_size ?
+				   sprintf("%d blocks", numBlocks($size)) :
+				   sprintf("0x%05X bytes", $size)),
 				  ($_->{'size'} >= $block_size ?
 				   sprintf("%d blocks", numBlocks($_->{'size'})) :
 				   sprintf("0x%05X bytes", $_->{'size'})));
@@ -496,9 +507,14 @@ sub layoutPartitions {
 		$_->{'start'} = $pointer;
 		$_->{'offset'} = $_->{'start'} - $flash_start;
 
+		my $size = defined $_->{'data'} ? length($_->{'data'}) : 0;
+
 		# Keep the user appraised ...
-		$debug and printf("Allocated <%s> from 0x%08X to 0x%08X (%s)\n",
+		$debug and printf("Allocated <%s> from 0x%08X to 0x%08X (%s / %s)\n",
 				  $_->{'name'}, $_->{'start'}, $_->{'start'} + $_->{'size'},
+				  ($size >= $block_size ?
+				   sprintf("%d blocks", numBlocks($size)) :
+				   sprintf("0x%05X bytes", $size)),
 				  ($_->{'size'} >= $block_size ?
 				   sprintf("%d blocks", numBlocks($_->{'size'})) :
 				   sprintf("0x%05X bytes", $_->{'size'})));
@@ -510,7 +526,12 @@ sub layoutPartitions {
 	    }
 
 	    # Move the pointer up, in preparation for the next partition.
-	    $pointer = $_->{'start'} + paddedSize($_->{'size'});
+	    if ($_->{'variable'} and defined $_->{'data'}) {
+		$pointer = $_->{'start'} + paddedSize(length($_->{'data'}));
+	    }
+	    else {
+		$pointer = $_->{'start'} + paddedSize($_->{'size'});
+	    }
 
 	}
 
@@ -540,9 +561,14 @@ sub buildPartitionTable {
 		$_->{'data'} = padBytes($partition_data, $_->{'size'});
 	    }
 
+	    my $size = length($_->{'data'});
+
 	    # Keep the user appraised ...
-	    $debug and printf("Table entry <%s> from 0x%08X to 0x%08X (%s)\n",
+	    $debug and printf("Table entry <%s> from 0x%08X to 0x%08X (%s / %s)\n",
 			      $_->{'name'}, $_->{'start'}, $_->{'start'} + $_->{'size'},
+			      ($size >= $block_size ?
+			       sprintf("%d blocks", numBlocks($size)) :
+			       sprintf("0x%05X bytes", $size)),
 			      ($_->{'size'} >= $block_size ?
 			       sprintf("%d blocks", numBlocks($_->{'size'})) :
 			       sprintf("0x%05X bytes", $_->{'size'})));
@@ -582,11 +608,14 @@ sub writeOutFirmware {
 
 	    # If the next parition is before the end of the current image, then rewind.
 	    elsif ($_->{'offset'} < $end_point) {
-		$debug and printf("Rewound 0x%05X bytes before <%s> in \"%s\"\n",
-				  $end_point - $_->{'offset'}, $_->{'name'}, $filename);
-		if (($end_point - $_->{'offset'}) >= $block_size) {
-		    die "Allocation error: rewound a full block or more ...\n";
-		}
+		$debug and printf("Rewound %s before <%s> in \"%s\"\n",
+				  (($end_point - $_->{'offset'}) >= $block_size ?
+				   sprintf("%d blocks", numBlocks($end_point - $_->{'offset'})) :
+				   sprintf("0x%05X bytes", length($end_point - $_->{'offset'}))),
+				  $_->{'name'}, $filename);
+# 		if (($end_point - $_->{'offset'}) >= $block_size) {
+# 		    die "Allocation error: rewound a full block or more ...\n";
+# 		}
 	    }
 
 	    # Splice the data into the image at the appropriate place, padding as required.
@@ -683,7 +712,7 @@ sub defaultPartitions {
 	     'offset'=>0x00060000,        'size'=>0x00100000,
 	     'variable'=>0, 'header'=>16, 'pseudo'=>0, 'data'=>undef},
 	    {'name'=>'Ramdisk',           'file'=>'ramdisk.gz',
-	     'offset'=>0x00160000,        'size'=>0x00680000,
+	     'offset'=>0x00160000,        'size'=>0x006a0000,
 	     'variable'=>1, 'header'=>16, 'pseudo'=>0, 'data'=>undef},
 	    {'name'=>'FIS directory',     'file'=>undef,
 	     'offset'=>0x007e0000,        'size'=>0x00020000,
@@ -847,9 +876,9 @@ if ($unpack) {
 }
 
 # Undefine the ramdisk size - it must be calculated for packing
-map {
-    ($_->{'name'} eq "Ramdisk") && ($_->{'size'} = undef);
-} @partitions;
+# map {
+#     ($_->{'name'} eq "Ramdisk") && ($_->{'size'} = undef);
+# } @partitions;
 
 # Pack the firmware if requested
 if ($pack) {
