@@ -41,6 +41,8 @@ use warnings;
 
 use Getopt::Long;
 
+my($debug) = 0;
+
 # Take $data, and pad it out to $total_len bytes, appending 0xff's.
 sub padBytes {
     my($data,$total_len) = @_;
@@ -79,17 +81,14 @@ sub createPartitionEntry {
 
     my($zero_long) = 0x0000;
 
-    # my($num_blocks) = $size / 0x00020000;
-    # printf("createPartitionEntry: %s\t0x%08X\t0x%08X\t%d\n", $name, $flash_base, $size, $num_blocks);
+    $debug and printf("createPartitionEntry: %s\t0x%08X\t0x%08X\t%d\n", $name, $flash_base, $size, $size / 0x00020000);
 
     return pack("a16N5x212N2",$name,$flash_base,$zero_long,$size,$zero_long,$zero_long,$zero_long,$zero_long);
 }
 
-# parse partition entry and return $name, $offset, $size . return 0 on partition terminator
+# parse partition entry and return anon array ref [$name, $offset, $size] or return 0 on partition terminator
 sub parsePartitionEntry {
     my($partition_entry) = @_;
-
-    print "parsePartitionEntry\n";
 
     my($flash_start) = 0x50000000;
     my($entry_len) = 0x100;
@@ -100,12 +99,12 @@ sub parsePartitionEntry {
 	unpack("a16N5x212N2",$partition_entry);
 
     if(unpack("C", $name) eq 0xff){
-	print "parsePartitionEntry: found terminator\n";
+	$debug and print "parsePartitionEntry: found terminator\n";
 	return 0;
     }
     # remove trailing nulls from $name
     $name =~ s/\000+//;
-    return($name, $flash_base - $flash_start, $size);
+    return [$name, $flash_base - $flash_start, $size];
 }
 
 # return partition table from data is one exists, otherwise return 0
@@ -116,16 +115,16 @@ sub findPartitionTable {
     return substr($data_buf, 0, 0x1000)
 }
 
-# parse partition table and return ({$name, $offset, $size}, ...)
+# parse partition table and return array of anonymous array references ([$name, $offset, $size], ...)
 sub parsePartitionTable {
     my($partition_table) = @_;
 
-    my(@partitions);
-    my(@fields);
+    my(@partitions, $fields_ref);
+    my($entry_len) = 0x100;
     my($partition_count) = 0;
-    while ((@fields = parsePartitionEntry(substr($partition_table, $partition_count * 0x100, 0x100))) eq 3){
-	printf("%s\t0x%08X\t0x%08X\n", @fields);
-	$partitions[$partition_count++] = [@fields];
+    while ($fields_ref = parsePartitionEntry(substr($partition_table, $partition_count * $entry_len, $entry_len))){
+	$debug and printf("parsePartitionTable: %s\t0x%08X\t0x%08X\n", @$fields_ref);
+	$partitions[$partition_count++] = $fields_ref;
     }
     return(@partitions);
 }
@@ -187,7 +186,7 @@ sub printRedbootTrailer {
 sub useDefaultPartitions {
     my($firmware_buf, $partitions_ref) = @_;
 
-    print 'useDefaultPartitions: ',length($firmware_buf),' ', scalar(@$partitions_ref),"\n";
+    $debug and print 'useDefaultPartitions: ',length($firmware_buf),' ', scalar(@$partitions_ref),"\n";
 
     # Read the parts of the firmware file into the partitions table.
     map {
@@ -209,7 +208,7 @@ sub useDefaultPartitions {
 		    $_->{'size'} = paddedSize($size);
 		}
 	    }
-	    printf("Read 0x%08X bytes into <%s>\n", length($_->{'data'}), $_->{'name'});
+	    $debug and printf("Read 0x%08X bytes into <%s>\n", length($_->{'data'}), $_->{'name'});
 	}
     } @$partitions_ref;
 }
@@ -218,7 +217,7 @@ sub useDefaultPartitions {
 sub useFirmwarePartitions {
     my($firmware_buf, $partitions_ref) = @_;
 
-    print 'useFirmwarePartitions: ',length($firmware_buf),' ', scalar(@$partitions_ref),"\n";
+    $debug and print 'useFirmwarePartitions: ',length($firmware_buf),' ', scalar(@$partitions_ref),"\n";
 
     # we know that partition table, if it exists, begins at start of 'FIS directory' and has max length 0x1000
     my($partition_table);
@@ -235,11 +234,11 @@ sub useFirmwarePartitions {
 
     my($partition_count) = 0;
     map {
-	printf("%s\t%08X\t%08X\n", @$_);
+	$debug and printf("%s\t0x%08X\t0x%08X\n", @$_);
 	$partitions_ref->[$partition_count] = {'name'=>$_->[0], 'offset'=>$_->[1], 'size'=>$_->[2], 'file'=>$_->[0]};
 	if($_->[0] eq 'Kernel' or $_->[0] eq 'Ramdisk'){
 	    my($data_len) =  unpack("N", substr($firmware_buf, $_->[1]));
-	    printf("%s has data length 0x%08X\n",$partitions_ref->[$partition_count]->{'name'} , $data_len);
+	    $debug and printf("%s has data length 0x%08X\n",$partitions_ref->[$partition_count]->{'name'} , $data_len);
 	    $partitions_ref->[$partition_count]->{'data'}   = substr($firmware_buf, $_->[1] + 16, $data_len);
 	}
 	else {
@@ -278,12 +277,11 @@ sub writeOutFirmwareParts {
 	# We can only write if 'data' and 'file' are defined.
 	if (defined $_->{'data'} and defined $_->{'file'}) {
 	    writeOut($_->{'data'}, $_->{'file'});
-	    print("Wrote ", sprintf("0x%08X", length($_->{'data'})), " bytes from <",
-		  $_->{'name'}, "> into \"", $_->{'file'}, "\"\n");
-
+	    $debug and printf("Wrote 0x%08X bytes from <%s> into \"%s\"\n",
+			      length($_->{'data'}), $_->{'name'}, $_->{'file'});
 	}
 	else {
-#	    print "Skipping ", $_->{'name'}, "\n";
+	    $debug and print "Skipping ", $_->{'name'}, "\n";
 	}
 
     } @partitions;
@@ -326,8 +324,8 @@ sub readInFirmwareParts {
 	    }
 
 	    # Keep the user appraised ...
-	    print("Read ", sprintf("0x%08X", length($_->{'data'})), " bytes from \"",
-		  $_->{'file'}, "\" into <", $_->{'name'}, "> (", numBlocks($size), " blocks)\n");
+	    $debug and printf("Read 0x%08X bytes from \"%s\" into <%s> (%d blocks)\n",
+			      length($_->{'data'}), $_->{'file'}, $_->{'name'}, numBlocks($size));
 	}
 	else {
 	    # read in payload if defined
@@ -336,7 +334,7 @@ sub readInFirmwareParts {
 		open PAYLOAD,$payload or die "Can't find payload \"$payload\": $!\n";
 		$_->{'payload_data'} = <PAYLOAD>;
 		close PAYLOAD or die "Can't close file \"$payload\": $!\n";
-		printf("Read 0x%08X bytes of payload data from \"$payload\"\n", length($_->{'payload_data'}));
+		$debug and printf("Read 0x%08X bytes of payload data from \"$payload\"\n", length($_->{'payload_data'}));
 	    }
 	}
 
@@ -463,7 +461,7 @@ sub buildPartitionTable {
 	    }
 	}
 	else {
-	    print "Skipping ", $_->{'name'}, "\n";
+	    $debug and print "Skipping ", $_->{'name'}, "\n";
 	}
 
     } @partitions;
@@ -488,9 +486,9 @@ sub checkPartitionTable {
 	$entry = substr($data, $pointer, 0x100);
 
 	($name,$flash_base,$zero_long,$size,$zero_long,$zero_long,$padding,$zero_long,$zero_long) = unpack("a16N5x212N2",$entry);
-	printf("pointer: %d\tname: %s\tflash_base: 0x%08X\tsize: 0x%08X\n", $pointer, $name, $flash_base, $size);
+	$debug and printf("pointer: %d\tname: %s\tflash_base: 0x%08X\tsize: 0x%08X\n", $pointer, $name, $flash_base, $size);
 	$pointer += 0x100;
-	printf("terminator: 0x%08X\n", unpack("C", substr($data, $pointer, 1)));
+	$debug and printf("terminator: 0x%08X\n", unpack("C", substr($data, $pointer, 1)));
 	if(unpack("C", substr($data, $pointer, 1)) eq 0xff){
 	    $done = 1;
 	}
@@ -616,7 +614,7 @@ sub defaultPartitions {
 
 my(@partitions) = defaultPartitions();
 
-my($unpack, $pack, $input, $output, $redboot, $kernel, $sysconf, $ramdisk, $fisdir, $trailer, $macaddr, $payload, $debug);
+my($unpack, $pack, $input, $output, $redboot, $kernel, $sysconf, $ramdisk, $fisdir, $trailer, $macaddr, $payload);
 
 if (!GetOptions("d|debug"      => \$debug,
 		"u|unpack"     => \$unpack,
