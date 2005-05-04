@@ -55,7 +55,7 @@ sub padBytes {
 
     # A request for negative padding is indicative of a logic error ...
     if (length($data) > $total_len) {
-	die "padBytes error: data is longer than total_len";
+	die sprintf("padBytes error: data (%d) is longer than total_len (%d)", length($data), $total_len);
     }
 
     return $data . ($pad_char x $pad_len);
@@ -852,6 +852,9 @@ if (defined $ramdisk) {
 		$entry{'size'} = $size * $block_size;
 		# Create an empty partition of the requested size.
 		$entry{'data'} = padBytes("", $entry{'size'});
+		if ($entry{'header'}) {
+		    $entry{'data'} = padBytes("", $entry{'size'} - $entry{'header'});
+		}
 	    }
 
 	    \%entry;
