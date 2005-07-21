@@ -372,6 +372,12 @@ sub readInFirmwareParts {
 	    # close the file
 	    close FILE or die "Can't close file \"$file\": $!\n";
 
+	    # Optionally byteswap the data
+	    if ($_->{'byteswap'}) {
+		# Byte swap the data (which has to be padded to a multiple of 4 bytes).
+		$_->{'data'} = pack("N*", unpack("V*", $_->{'data'}.pack("CCC", 0)));
+	    }
+
 	    # Keep track of the actual size.
 	    my $size;
 
@@ -392,7 +398,8 @@ sub readInFirmwareParts {
 	    }
 
 	    # Keep the user appraised ...
-	    $quiet or printf("Read 0x%08X bytes from \"%s\" into <%s> (%s / %s)\n",
+	    $quiet or printf("%s 0x%08X bytes from \"%s\" into <%s> (%s / %s)\n",
+			     ($_->{'byteswap'} ? "Byteswapped" : "Read"),
 			     length($_->{'data'}), $_->{'file'}, $_->{'name'},
 			     ($size >= $block_size ?
 			      sprintf("%d blocks", numBlocks($size)) :
@@ -701,34 +708,28 @@ sub defaultPartitions {
 
     return ({'name'=>'RedBoot',           'file'=>'RedBoot',
 	     'offset'=>0x00000000,        'size'=>0x00040000,
-	     'variable'=>0, 'header'=>0,  'pseudo'=>0, 'data'=>undef},
+	     'variable'=>0, 'header'=>0,  'pseudo'=>0, 'data'=>undef, 'byteswap'=>0},
 	    {'name'=>'EthAddr',           'file'=>undef,
 	     'offset'=>0x0003ffb0,        'size'=>0x00000006,
-	     'variable'=>0, 'header'=>0,  'pseudo'=>1, 'data'=>undef},
+	     'variable'=>0, 'header'=>0,  'pseudo'=>1, 'data'=>undef, 'byteswap'=>0},
 	    {'name'=>'SysConf',           'file'=>'SysConf',
 	     'offset'=>0x00040000,        'size'=>0x00020000,
-	     'variable'=>0, 'header'=>0,  'pseudo'=>0, 'data'=>undef},
+	     'variable'=>0, 'header'=>0,  'pseudo'=>0, 'data'=>undef, 'byteswap'=>0},
 	    {'name'=>'Kernel',            'file'=>'vmlinuz',
 	     'offset'=>0x00060000,        'size'=>0x00100000,
-	     'variable'=>0, 'header'=>16, 'pseudo'=>0, 'data'=>undef},
+	     'variable'=>0, 'header'=>16, 'pseudo'=>0, 'data'=>undef, 'byteswap'=>0},
 	    {'name'=>'Ramdisk',           'file'=>'ramdisk.gz',
 	     'offset'=>0x00160000,        'size'=>0x006a0000,
-	     'variable'=>1, 'header'=>16, 'pseudo'=>0, 'data'=>undef},
+	     'variable'=>1, 'header'=>16, 'pseudo'=>0, 'data'=>undef, 'byteswap'=>0},
 	    {'name'=>'FIS directory',     'file'=>undef,
 	     'offset'=>0x007e0000,        'size'=>0x00020000,
-	     'variable'=>0, 'header'=>0,  'pseudo'=>0, 'data'=>undef},
-	    {'name'=>'SlugMark',          'file'=>undef,
-	     'offset'=>0x007e0f02,        'size'=>0x00000006,
-	     'variable'=>0, 'header'=>0,  'pseudo'=>1, 'data'=>'sLuGmK'},
-	    {'name'=>'SwitchArgs',        'file'=>undef,
-	     'offset'=>0x007e0f08,        'size'=>0x000000f8,
-	     'variable'=>0, 'header'=>0,  'pseudo'=>1, 'data'=>undef},
+	     'variable'=>0, 'header'=>0,  'pseudo'=>0, 'data'=>undef, 'byteswap'=>0},
 	    {'name'=>'Payload',	          'file'=>undef,
 	     'offset'=>0x007e1000,        'size'=>0x0001eff0,
-	     'variable'=>1, 'header'=>16, 'pseudo'=>1, 'data'=>undef},
+	     'variable'=>1, 'header'=>16, 'pseudo'=>1, 'data'=>undef, 'byteswap'=>0},
 	    {'name'=>'Trailer',           'file'=>'Trailer',
 	     'offset'=>0x007ffff0,        'size'=>0x00000010,
-	     'variable'=>0, 'header'=>0,  'pseudo'=>1, 'data'=>undef},
+	     'variable'=>0, 'header'=>0,  'pseudo'=>1, 'data'=>undef, 'byteswap'=>0},
 	    );
 
 }
@@ -737,12 +738,13 @@ sub defaultPartitions {
 
 my(@partitions) = defaultPartitions();
 
-my($unpack, $pack, $input, $output, $redboot, $kernel, $sysconf, $ramdisk, $fisdir, $payload, $trailer, $ethaddr);
+my($unpack, $pack, $little, $input, $output, $redboot, $kernel, $sysconf, $ramdisk, $fisdir, $payload, $trailer, $ethaddr);
 
 if (!GetOptions("d|debug"      => \$debug,
 		"q|quiet"      => \$quiet,
 		"u|unpack"     => \$unpack,
 		"p|pack"       => \$pack,
+		"l|little"     => \$little,
 		"i|input=s"    => \$input,
 		"o|output=s"   => \$output,
 		"b|redboot=s"  => \$redboot,
@@ -750,7 +752,7 @@ if (!GetOptions("d|debug"      => \$debug,
 		"s|sysconf=s"  => \$sysconf,
 		"r|ramdisk=s"  => \$ramdisk,
 		"f|fisdir=s"   => \$fisdir,
-		"l|payload=s"  => \$payload,
+		"y|payload=s"  => \$payload,
 		"t|trailer=s"  => \$trailer,
 		"e|ethaddr=s"  => \$ethaddr,
 		) or (not defined $pack and not defined $unpack)) {
@@ -760,6 +762,7 @@ if (!GetOptions("d|debug"      => \$debug,
     print "  [-q|--quiet]			Turn off status messages\n";
     print "  [-u|--unpack]			Unpack a firmware image\n";
     print "  [-p|--pack]			Pack a firmware image\n";
+    print "  [-l|--little]			Convert Kernel and Ramdisk to little-endian\n";
     print "  [-i|--input]    <file>		Input firmware image filename\n";
     print "  [-o|--output]   <file>		Output firmware image filename\n";
     print "  [-b|--redboot]  <file>		Input/Output RedBoot filename\n";
@@ -767,7 +770,7 @@ if (!GetOptions("d|debug"      => \$debug,
     print "  [-s|--sysconf]  <file>		Input/Output SysConf filename\n";
     print "  [-r|--ramdisk]  <file>		Input/Output Ramdisk filename(s)\n";
     print "  [-f|--fisdir]   <file>		Input/Output FIS directory filename\n";
-    print "  [-l|--payload]  <file>		Input/Output Payload filename\n";
+    print "  [-y|--payload]  <file>		Input/Output Payload filename\n";
     print "  [-t|--trailer]  <file>		Input/Output Trailer filename\n";
     print "  [-e|--ethaddr]  <AABBCCDDEEFF>	Set the Ethernet address\n";
 
@@ -783,6 +786,15 @@ if (defined $sysconf) { map { ($_->{'name'} eq 'SysConf') 	&& ($_->{'file'} = $s
 if (defined $fisdir)  { map { ($_->{'name'} eq 'FIS directory') && ($_->{'file'} = $fisdir);  } @partitions; }
 if (defined $payload) { map { ($_->{'name'} eq 'Payload')       && ($_->{'file'} = $payload); } @partitions; }
 if (defined $trailer) { map { ($_->{'name'} eq 'Trailer')       && ($_->{'file'} = $trailer); } @partitions; }
+
+if (defined $little)  {
+    map {
+	if (($_->{'name'} eq 'Kernel') or
+	    ($_->{'name'} eq 'Ramdisk')) {
+	    $_->{'byteswap'} = 1;
+	}
+    } @partitions;
+}
 
 if (defined $ethaddr) {
     map {
@@ -839,6 +851,7 @@ if (defined $ramdisk) {
 		$entry{'header'} = 0;
 		$entry{'pseudo'} = 0;
 		$entry{'data'} = undef;
+		$entry{'byteswap'} = 0;
 	    }
 
 	    # Support specification of the number of blocks for empty jffs2
