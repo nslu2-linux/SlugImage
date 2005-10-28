@@ -533,7 +533,10 @@ sub layoutPartitions {
 	    }
 
 	    # Move the pointer up, in preparation for the next partition.
-	    if ($_->{'variable'} and defined $_->{'data'}) {
+	    if ($_->{'variable'} and defined $_->{'size'}) {
+		$pointer = $_->{'start'} + paddedSize($_->{'size'});
+	    }
+	    elsif ($_->{'variable'} and defined $_->{'data'}) {
 		$pointer = $_->{'start'} + paddedSize(length($_->{'data'}));
 	    }
 	    else {
