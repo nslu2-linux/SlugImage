@@ -762,6 +762,13 @@ my(@partitions) = defaultPartitions();
 my($unpack, $pack, $little, $input, $output, $redboot, $kernel, $sysconf, $ramdisk, $fisdir, $payload, $trailer, $ethaddr);
 my (@cleanup);
 
+END {
+    # Remove temporary files
+    for my $file (@cleanup) {
+	unlink $file;
+    }
+}
+
 if (!GetOptions("d|debug"      => \$debug,
 		"q|quiet"      => \$quiet,
 		"u|unpack"     => \$unpack,
@@ -996,11 +1003,6 @@ if ($pack) {
     
     writeOutFirmware($output, @partitions);
 
-}
-
-# Remove temporary files
-for my $file (@cleanup) {
-    unlink $file;
 }
 
 exit 0;
