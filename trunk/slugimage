@@ -5,7 +5,7 @@
 #             Rod Whitby (rwhitby)
 #	      www.nslu2-linux.org
 #
-# Copyright (c) 2004, Dwayne Fontenot & Rod Whitby
+# Copyright (c) 2004, 2006, Dwayne Fontenot & Rod Whitby
 # All rights reserved.
 # 
 # Redistribution and use in source and binary forms, with or without
@@ -40,10 +40,28 @@ use strict;
 use warnings;
 
 use Getopt::Long;
+use POSIX qw(tmpnam);
 
 my($debug) = 0;
 my($quiet) = 0;
 my($block_size) = 0x00020000;
+
+# The last 70 bytes of the SercommRedBootTrailer (i.e. excluding MAC
+# address).  Needed to create an image with an empty RedBoot partition
+# since the upgrade toold checks for this trailer.
+# http://www.nslu2-linux.org/wiki/Info/SercommRedBootTrailer
+my @sercomm_redboot_trailer = (0x4573, 0x4372, 0x4d6f, 0x006d, 0x0001,
+       0x0400, 0x3170, 0x5895, 0x0010, 0x0000, 0x0000, 0x0000, 0x0000,
+       0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000,
+       0x0000, 0x0000, 0x0001, 0x0000, 0x0000, 0x0000, 0x0003, 0x2300,
+       0x0063, 0x0000, 0x7320, 0x7245, 0x6f43, 0x6d4d);
+
+# There's a 16 byte Sercomm trailer at the end of the flash. It is used
+# by # RedBoot to detect a Sercomm flash layout and to configure the
+# Sercomm upgrade system.
+# http://www.nslu2-linux.org/wiki/Info/SercommFlashTrailer
+my @sercomm_flash_trailer = (0x0100, 0x0000, 0x6323, 0xf790, 0x5265,
+                             0x4f63, 0x4d6d, 0xb400);
 
 # Take $data, and pad it out to $total_len bytes, appending 0xff's.
 sub padBytes {
@@ -742,6 +760,7 @@ sub defaultPartitions {
 my(@partitions) = defaultPartitions();
 
 my($unpack, $pack, $little, $input, $output, $redboot, $kernel, $sysconf, $ramdisk, $fisdir, $payload, $trailer, $ethaddr);
+my (@cleanup);
 
 if (!GetOptions("d|debug"      => \$debug,
 		"q|quiet"      => \$quiet,
@@ -780,6 +799,43 @@ if (!GetOptions("d|debug"      => \$debug,
     # TODO: document --ramdisk syntax
 
     exit 1;
+}
+
+if ($pack) {
+    # If we're creating an image and no RedBoot, SysConf partition is
+    # explicitly specified, simply write an empty one as the upgrade tools
+    # don't touch RedBoot and SysConf anyway.  If no Trailer is specified,
+    # put in one.
+    if (!$redboot) {
+	$redboot = tmpnam();
+	open TMP, ">$redboot" or die "Cannot open file $redboot: $!";
+	push @cleanup, $redboot;
+	# The RedBoot partition is 256 * 1024 = 262144; the trailer we add
+	# is 70 bytes.
+	print TMP "\0"x(262144-70);
+	# Upgrade tools check for an appropriate Sercomm trailer.
+	for my $i (@sercomm_redboot_trailer) {
+	    print TMP pack "S", $i;
+	}
+	close TMP;
+    }
+    if (!$sysconf) {
+	$sysconf = tmpnam();
+	open TMP, ">$sysconf" or die "Cannot open file $sysconf: $!";
+	push @cleanup, $sysconf;
+	# The SysConf partition is 128 * 1024 = 131072
+	print TMP "\0"x131072;
+	close TMP;
+    }
+    if (!$trailer) {
+	$trailer = tmpnam();
+	open TMP, ">$trailer" or die "Cannot open file $redboot: $!";
+	push @cleanup, $trailer;
+	for my $i (@sercomm_flash_trailer) {
+	    print TMP pack "S", $i;
+	}
+	close TMP;
+    }
 }
 
 # Go through the partition options, and set the names and files in @partitions
@@ -940,6 +996,11 @@ if ($pack) {
 
     writeOutFirmware($output, @partitions);
 
+}
+
+# Remove temporary files
+for my $file (@cleanup) {
+    unlink $file;
 }
 
 exit 0;
