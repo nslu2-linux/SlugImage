@@ -815,7 +815,7 @@ if ($pack) {
     # explicitly specified, simply write an empty one as the upgrade tools
     # don't touch RedBoot and SysConf anyway.  If no Trailer is specified,
     # put in one.
-    if (!$redboot) {
+    if (!$redboot && ! -e "RedBoot") {
 	$redboot = tmpnam();
 	open TMP, ">$redboot" or die "Cannot open file $redboot: $!";
 	push @cleanup, $redboot;
@@ -828,7 +828,7 @@ if ($pack) {
 	}
 	close TMP;
     }
-    if (!$sysconf) {
+    if (!$sysconf && ! -e "SysConf") {
 	$sysconf = tmpnam();
 	open TMP, ">$sysconf" or die "Cannot open file $sysconf: $!";
 	push @cleanup, $sysconf;
@@ -836,7 +836,7 @@ if ($pack) {
 	print TMP "\0"x131072;
 	close TMP;
     }
-    if (!$trailer) {
+    if (!$trailer && ! -e "Trailer") {
 	$trailer = tmpnam();
 	open TMP, ">$trailer" or die "Cannot open file $redboot: $!";
 	push @cleanup, $trailer;
