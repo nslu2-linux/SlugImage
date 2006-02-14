@@ -951,6 +951,8 @@ if ($input) {
 
 # Unpack the firmware if requested
 if ($unpack) {
+    die "Input filename must be specified\n" unless defined $input;
+
 #    map {
 #	($_->{'name'} eq 'FIS directory') and @partitions = checkPartitionTable($_->{'data'});
 #    } @partitions;
