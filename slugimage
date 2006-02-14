@@ -802,6 +802,8 @@ if (!GetOptions("d|debug"      => \$debug,
 }
 
 if ($pack) {
+    die "Output filename must be specified\n" unless defined $output;
+
     # If we're creating an image and no RedBoot, SysConf partition is
     # explicitly specified, simply write an empty one as the upgrade tools
     # don't touch RedBoot and SysConf anyway.  If no Trailer is specified,
@@ -992,8 +994,6 @@ if ($pack) {
 # 	checkPartitionTable($lastblock);
 #     }
     
-    die "Output filename must be specified\n" unless defined $output;
-
     writeOutFirmware($output, @partitions);
 
 }
