@@ -39,16 +39,22 @@
 use strict;
 use warnings;
 
-use Getopt::Long;
+use Getopt::Long qw(:config no_ignore_case);
 use POSIX qw(tmpnam);
 
 my($debug) = 0;
 my($quiet) = 0;
-my($block_size) = 0x00020000;
+my($flash_start)    = 0x50000000;
+my($flash_len)      = 0x00800000;
+my($block_size)     = 0x00020000;
+my($kernel_offset)  = 0x00060000;
+my($kernel_size)    = 0x00100000;
+my($ramdisk_offset) = 0x00160000;
+my(@cleanup);
 
 # The last 70 bytes of the SercommRedBootTrailer (i.e. excluding MAC
 # address).  Needed to create an image with an empty RedBoot partition
-# since the upgrade toold checks for this trailer.
+# since the Sercomm upgrade tool checks for this trailer.
 # http://www.nslu2-linux.org/wiki/Info/SercommRedBootTrailer
 my @sercomm_redboot_trailer = (0x4573, 0x4372, 0x4d6f, 0x006d, 0x0001,
        0x0400, 0x3170, 0x5895, 0x0010, 0x0000, 0x0000, 0x0000, 0x0000,
@@ -57,7 +63,7 @@ my @sercomm_redboot_trailer = (0x4573, 0x4372, 0x4d6f, 0x006d, 0x0001,
        0x0063, 0x0000, 0x7320, 0x7245, 0x6f43, 0x6d4d);
 
 # There's a 16 byte Sercomm trailer at the end of the flash. It is used
-# by # RedBoot to detect a Sercomm flash layout and to configure the
+# by RedBoot to detect a Sercomm flash layout and to configure the
 # Sercomm upgrade system.
 # http://www.nslu2-linux.org/wiki/Info/SercommFlashTrailer
 my @sercomm_flash_trailer = (0x0100, 0x0000, 0x6323, 0xf790, 0x5265,
@@ -95,28 +101,40 @@ sub numBlocks {
     return (($data_len - 1) / $block_size) + 1;
 }
 
-# Pack the name, address, and size of a partition entry into binary form.
+# Pack the name, address, size and optional skip regions of a partition entry into binary form.
 sub createPartitionEntry {
-    my($name, $flash_base, $size) = @_;
+    my($name, $flash_base, $size, $skips) = @_;
+    my $entry;
 
     my($zero_long) = 0x0000;
 
     # Pack the partition entry according to the format that RedBoot (and the MTD partition parsing code) requires.
-    return pack("a16N5x212N2",$name,$flash_base,$zero_long,$size,$zero_long,$zero_long,$zero_long,$zero_long);
+    $entry = pack("a16N5x212N2",$name,$flash_base,$zero_long,$size,$zero_long,$zero_long,$zero_long,$zero_long);
+
+    # Optionally put a skip header into the padding area.
+    if (defined $skips) {
+	my $i = scalar(@$skips);
+	foreach my $region (@$skips) {
+	    substr($entry, -8 - 12*$i, 12) =
+		pack("a4N2", "skip", $region->{'offset'}, $region->{'size'});
+	    $i--;
+	}
+    }
+
+    return $entry;
 }
 
-# Parse partition entry and return anon array ref [$name, $offset, $size] or return 0 on partition terminator.
+# Parse partition entry and return anon array ref [$name, $offset, $size, $skip] or return 0 on partition terminator.
 sub parsePartitionEntry {
     my($partition_entry) = @_;
 
-    my($flash_start) = 0x50000000;
     my($entry_len) = 0x100;
     length($partition_entry) eq $entry_len or die "parsePartitionEntry: partition entry length is not $entry_len!\n";
 
     # Unpack the partition table entry, saving those values in which we are interested.
-    my($name, $flash_base, $size, $zero_long, $padding);
-    ($name, $flash_base, $zero_long, $size, $zero_long, $zero_long, $padding, $zero_long, $zero_long) =
-	unpack("a16N5x212N2",$partition_entry);
+    my($name, $flash_base, $size, $dummy_long, $padding, $skips);
+    ($name, $flash_base, $dummy_long, $size, $dummy_long, $dummy_long, $padding, $dummy_long, $dummy_long) =
+	unpack("a16N5a212N2",$partition_entry);
 
     # A partition entry starting with 0xFF terminates the table.
     if (unpack("C", $name) eq 0xff) {
@@ -127,7 +145,23 @@ sub parsePartitionEntry {
     # Remove trailing nulls from the partition name.
     $name =~ s/\000+//;
 
-    return [$name, $flash_base - $flash_start, $size];
+    # Extract the skip regions out of the padding area.
+    $padding =~ s/^\000+//;
+    $padding =~ s/\000*skip(........)\000*/$1/g;
+    $padding =~ s/\000+$//;
+
+    # Store the skip regions in an array for later use.
+    while (length($padding)) {
+	my $region = {};
+	($region->{'offset'}, $region->{'size'}) =
+	    unpack("N2", $padding);
+	$debug and printf("Found skip region at 0x%05X, size 0x%05X\n",
+			  $region->{'offset'}, $region->{'size'});
+	push(@$skips, $region);
+	$padding = substr($padding,8);
+    }
+
+    return [$name, $flash_base - $flash_start, $size, $skips];
 }
 
 # Return partition table from data is one exists, otherwise return 0.
@@ -138,7 +172,7 @@ sub findPartitionTable {
     return substr($data_buf, 0, 0x1000)
 }
 
-# Parse partition table and return array of anonymous array references ([$name, $offset, $size], ...).
+# Parse partition table and return array of anonymous array references ([$name, $offset, $size, $skips], ...).
 sub parsePartitionTable {
     my($partition_table) = @_;
 
@@ -148,10 +182,16 @@ sub parsePartitionTable {
 
     # Loop through the fixed size partition table entries, and store the entries in @partitions.
     while ($fields_ref = parsePartitionEntry(substr($partition_table, $partition_count * $entry_len, $entry_len))) {
-	$debug and printf("Found <%s> at 0x%08X (%s)\n", $fields_ref->[0], $fields_ref->[1],
+	$debug and printf("Found <%s> at 0x%08X (%s)%s\n", $fields_ref->[0], $fields_ref->[1],
 			  ($fields_ref->[2] >= $block_size ?
 			   sprintf("%d blocks", numBlocks($fields_ref->[2])) :
-			   sprintf("0x%05X bytes", $fields_ref->[2])));
+			   sprintf("0x%05X bytes", $fields_ref->[2])),
+			  (defined $fields_ref->[3] ?
+			   sprintf(" [%s]",
+				   join(", ",
+					map { sprintf("0x%05X/0x%05X", $_->{'offset'},$_->{'size'}) }
+					@{$fields_ref->[3]})) :
+			   ""));
 	$partitions[$partition_count++] = $fields_ref;
     }
     return(@partitions);
@@ -159,7 +199,7 @@ sub parsePartitionTable {
 
 # Create an empty jffs2 block.
 sub jffs2Block {
-    return padBytes(pack("N3", 0x19852003, 0x0000000c, 0xf060dc98), 0x00020000);
+    return padBytes(pack("N3", 0x19852003, 0x0000000c, 0xf060dc98), $block_size);
 }
 
 # Write out $data to $filename,
@@ -215,6 +255,41 @@ sub printRedbootTrailer {
 	   $hver, $prodid, $protid, $funcid, $fver, $cseg, $csize);
 }
 
+# remove the optional Loader partition
+sub removeOptionalLoader {
+    my($partitions_ref) = @_;
+
+    my $index;
+    my $count = 0;
+    map {
+	if (not defined $index) {
+	    if ($_->{'name'} eq "Loader") {
+		$index = $count;
+	    }
+	    $count++;
+	}
+    } @$partitions_ref;
+    
+    defined $index or die "Cannot find the Loader partition\n";
+
+    splice(@$partitions_ref, $index, 1);
+
+    # Set fixed offsets and sizes for Kernel and Ramdisk
+    map {
+	if ($_->{'name'} eq 'Kernel') {
+	    $_->{'offset'}   = $kernel_offset;
+	    $_->{'size'}     = $kernel_size;
+	    $_->{'variable'} = 0;
+	}
+	if ($_->{'name'} eq 'Ramdisk') {
+	    $_->{'offset'}   = $ramdisk_offset;
+	}
+    } @$partitions_ref;
+
+    return;
+}
+
+
 # populate @partitions based on the firmware's partition table
 sub spliceFirmwarePartitions {
     my($firmware_buf, $partitions_ref) = @_;
@@ -230,6 +305,11 @@ sub spliceFirmwarePartitions {
     return if not $partition_table;
 
     my @new_partitions = parsePartitionTable($partition_table);
+
+    # Remove the optional second stage bootloader if it is not found in the FIS directory.
+    if (not grep { $_->[0] eq 'Loader' } @new_partitions) {
+	removeOptionalLoader($partitions_ref);
+    }
 
     my($partition_count) = 0;
     my($splice) = 0;
@@ -259,16 +339,18 @@ sub spliceFirmwarePartitions {
 	    if ($partition->{'name'} ne $_->[0]) {
 
 		if (length($partition->{'name'})) {
-		    $debug and printf("Overwriting <%s> with <%s>\n", $partitions_ref->[$partition_count]->{'name'});
+		    $debug and printf("Overwriting <%s> with <%s>\n",
+				      $partitions_ref->[$partition_count]->{'name'}, $_->[0]);
 		}
 
 		$partition->{'name'} = $_->[0];
 		$partition->{'file'} = $_->[0];
 	    }
 
-	    # Set the offset and size based on the real partition table
+	    # Set the offset, size and skips based on the real partition table
 	    $partition->{'offset'} = $_->[1];
 	    $partition->{'size'}   = $_->[2];
+	    $partition->{'skips'}  = $_->[3];
 
 	    $debug and printf("Locating <%s> at 0x%08X (%s)\n",
 			      $partition->{'name'}, $partition->{'offset'},
@@ -283,6 +365,13 @@ sub spliceFirmwarePartitions {
 	else {
 	    ($partition->{'name'} eq $_->[0]) or
 		die "Unexpected partition <",$_->[0],"> (expecting <",$partition->{'name'},">)\n";
+
+	    $debug and printf("Locating <%s> at 0x%08X (%s)\n",
+			      $partition->{'name'}, $partition->{'offset'},
+			      ($partition->{'size'} >= $block_size ?
+			       sprintf("%d blocks", numBlocks($partition->{'size'})) :
+			       sprintf("0x%05X bytes", $partition->{'size'})));
+	    
 	    $splice = 0;
 	}
 	
@@ -336,6 +425,20 @@ sub readInFirmware {
 
 		    # Grab the whole partition, using the maximum size.
 		    $_->{'data'} = substr($firmware_buf, $_->{'offset'}, $_->{'size'});
+		}
+
+		# If skip regions are defined, remove them from the data.
+		if (defined $_->{'skips'}) {
+		    my $removed = 0;
+		    foreach my $region (@{$_->{'skips'}}) {
+			if (($region->{'offset'} > 0) or
+			    not ($_->{'header'} > 0)) {
+			    $debug and printf("Removing 0x%05X bytes from offset 0x%05X\n",
+					      $region->{'size'}, $region->{'offset'});
+			    $region->{'data'} = substr($_->{'data'}, $region->{'offset'} - $removed, $region->{'size'}, '');
+			}
+			$removed += $region->{'size'};
+		    }
 		}
 
 		$quiet or defined $_->{'data'} and printf("Read %s into <%s>\n",
@@ -399,7 +502,6 @@ sub readInFirmwareParts {
 	    # Keep track of the actual size.
 	    my $size;
 
-	    # Account for the length header if required.
 	    if ($_->{'header'}) {
 		$size = paddedSize($_->{'header'} + length($_->{'data'}));
 	    }
@@ -416,15 +518,15 @@ sub readInFirmwareParts {
 	    }
 
 	    # Keep the user appraised ...
-	    $quiet or printf("%s 0x%08X bytes from \"%s\" into <%s> (%s / %s)\n",
-			     ($_->{'byteswap'} ? "Byteswapped" : "Read"),
+	    $quiet or printf("Read 0x%08X bytes from \"%s\" into <%s> (%s / %s)%s\n",
 			     length($_->{'data'}), $_->{'file'}, $_->{'name'},
 			     ($size >= $block_size ?
 			      sprintf("%d blocks", numBlocks($size)) :
 			      sprintf("0x%05X bytes", $size)),
 			     ($_->{'size'} >= $block_size ?
 			      sprintf("%d blocks", numBlocks($_->{'size'})) :
-			      sprintf("0x%05X bytes", $_->{'size'})));
+			      sprintf("0x%05X bytes", $_->{'size'})),
+			     ($_->{'byteswap'} ? " (byte-swapped)" : ""));
 	}
 
     } @partitions;
@@ -442,9 +544,6 @@ sub readInFirmwareParts {
 #         can then be passed to buildPartitionTable() to generate the actual partition table data
 sub layoutPartitions {
     my(@partitions) = @_;
-
-    my($flash_start) = 0x50000000;
-    my($flash_len)   = 0x00800000;
 
     # Find the last variable size partition, and save a pointer to it for later use
     my $lastdisk;
@@ -478,6 +577,7 @@ sub layoutPartitions {
 	# If this is the last variable size partition, then fill the rest of the space.
 	if ($_->{'name'} eq $lastdisk->{'name'}) {
 	    $_->{'size'} = paddedSize($directory_offset + $flash_start - $pointer);
+	    $debug and printf("Padding last variable partition <%s> to 0x%08X bytes\n", $_->{'name'}, $_->{'size'});
 	}
 
 	# Handle requests for partition creation first.
@@ -490,7 +590,8 @@ sub layoutPartitions {
 
 		# Create an empty partition of the requested size.
 		$_->{'data'} = padBytes("", $_->{'size'});
-
+		
+		$debug and printf("Creating empty partition <%s> of 0x%08X bytes\n", $_->{'name'}, $_->{'size'});
 	    }
 
 	    if (not defined $_->{'offset'}) {
@@ -513,37 +614,51 @@ sub layoutPartitions {
 	    # Determine the start and offset of the current partition.
 	    if (defined $_->{'offset'}) {
 		$_->{'start'} = $flash_start + $_->{'offset'};
-
-		my $size = defined $_->{'data'} ? length($_->{'data'}) : 0;
-
-		# Keep the user appraised ...
-		$debug and printf("Allocated <%s> from 0x%08X to 0x%08X (%s / %s)\n",
-				  $_->{'name'}, $_->{'start'}, $_->{'start'} + $_->{'size'},
-				  ($size >= $block_size ?
-				   sprintf("%d blocks", numBlocks($size)) :
-				   sprintf("0x%05X bytes", $size)),
-				  ($_->{'size'} >= $block_size ?
-				   sprintf("%d blocks", numBlocks($_->{'size'})) :
-				   sprintf("0x%05X bytes", $_->{'size'})));
 	    }
 
 	    # If offset is not defined, then calculate it.
 	    else {
 		$_->{'start'} = $pointer;
 		$_->{'offset'} = $_->{'start'} - $flash_start;
-
-		my $size = defined $_->{'data'} ? length($_->{'data'}) : 0;
-
-		# Keep the user appraised ...
-		$debug and printf("Allocated <%s> from 0x%08X to 0x%08X (%s / %s)\n",
-				  $_->{'name'}, $_->{'start'}, $_->{'start'} + $_->{'size'},
-				  ($size >= $block_size ?
-				   sprintf("%d blocks", numBlocks($size)) :
-				   sprintf("0x%05X bytes", $size)),
-				  ($_->{'size'} >= $block_size ?
-				   sprintf("%d blocks", numBlocks($_->{'size'})) :
-				   sprintf("0x%05X bytes", $_->{'size'})));
 	    }
+
+	    my $size = defined $_->{'data'} ? length($_->{'data'}) : 0;
+
+	    # Add skip regions for the partitions with headers.
+	    if ($_->{'header'} > 0) {
+		# Define the skip region for the initial Sercomm header.
+		push(@{$_->{'skips'}},
+		     { 'offset' => 0, 'size' => $_->{'header'}, 'data' => undef });
+		# Allow for the Sercomm header to be prepended to the data.
+		$size += $_->{'header'};
+	    }
+
+	    # Determine if the partition requires a Sercomm skip region.
+	    if (($_->{'offset'} < $ramdisk_offset) and
+		(($_->{'offset'} + $size) > $ramdisk_offset)) {
+		# Define the skip region for the inline Sercomm header.
+		push(@{$_->{'skips'}},
+		     { 'offset' => ($ramdisk_offset - $_->{'offset'}), 'size' => 16,
+		       'data' => pack("N4", $block_size) });
+		# Allow for the Sercomm header to be inserted in the data.
+		$size += 16;
+	    }
+
+	    # Extend to another block if required.
+	    if ($size > $_->{'size'}) {
+		$_->{'size'} = paddedSize($size);
+		$debug and printf("Extending partition <%s> to 0x%08X bytes\n", $_->{'name'}, $_->{'size'});
+	    }
+
+	    # Keep the user appraised ...
+	    $debug and printf("Allocated <%s> from 0x%08X to 0x%08X (%s / %s)\n",
+			      $_->{'name'}, $_->{'start'}, $_->{'start'} + $_->{'size'},
+			      ($size >= $block_size ?
+			       sprintf("%d blocks", numBlocks($size)) :
+			       sprintf("0x%05X bytes", $size)),
+			      ($_->{'size'} >= $block_size ?
+			       sprintf("%d blocks", numBlocks($_->{'size'})) :
+			       sprintf("0x%05X bytes", $_->{'size'})));
 
 	    # Check to make sure we have not run out of room.
 	    if (($_->{'start'} + $_->{'size'}) > ($flash_start + $flash_len)) {
@@ -551,15 +666,7 @@ sub layoutPartitions {
 	    }
 
 	    # Move the pointer up, in preparation for the next partition.
-	    if ($_->{'variable'} and defined $_->{'size'}) {
-		$pointer = $_->{'start'} + paddedSize($_->{'size'});
-	    }
-	    elsif ($_->{'variable'} and defined $_->{'data'}) {
-		$pointer = $_->{'start'} + paddedSize(length($_->{'data'}));
-	    }
-	    else {
-		$pointer = $_->{'start'} + paddedSize($_->{'size'});
-	    }
+	    $pointer = $_->{'start'} + paddedSize($_->{'size'});
 
 	}
 
@@ -580,7 +687,8 @@ sub buildPartitionTable {
 	if (not $_->{'pseudo'} and defined $_->{'offset'} and defined $_->{'size'}) {
 
 	    # Pack and append the binary table entry for this partition.
-	    $partition_data .= createPartitionEntry($_->{'name'}, $_->{'offset'} + $flash_start, $_->{'size'});
+	    $partition_data .= createPartitionEntry($_->{'name'}, $_->{'offset'} + $flash_start,
+						    $_->{'size'}, $_->{'skips'});
 
 	    # If this is the FIS directory, then write the partition table data into it.
 	    if ($_->{'name'} eq "FIS directory") {
@@ -592,14 +700,22 @@ sub buildPartitionTable {
 	    my $size = length($_->{'data'});
 
 	    # Keep the user appraised ...
-	    $debug and printf("Table entry <%s> from 0x%08X to 0x%08X (%s / %s)\n",
+	    $debug and printf("Table entry <%s> from 0x%08X to 0x%08X (%s / %s)%s\n",
 			      $_->{'name'}, $_->{'start'}, $_->{'start'} + $_->{'size'},
 			      ($size >= $block_size ?
 			       sprintf("%d blocks", numBlocks($size)) :
 			       sprintf("0x%05X bytes", $size)),
 			      ($_->{'size'} >= $block_size ?
 			       sprintf("%d blocks", numBlocks($_->{'size'})) :
-			       sprintf("0x%05X bytes", $_->{'size'})));
+			       sprintf("0x%05X bytes", $_->{'size'})),
+			      (defined $_->{'skips'} ?
+			       sprintf("\nTable entry <%s> skip %s", $_->{'name'},
+				       join(", ",
+					    map { sprintf("0x%08X to 0x%08X", $_->{'offset'},
+							  $_->{'offset'} + $_->{'size'} - 1) }
+					    @{$_->{'skips'}})) :
+			       "")
+			      );
 	}
 	else {
 	    $debug and print "No table entry required for <", $_->{'name'}, ">\n";
@@ -646,6 +762,22 @@ sub writeOutFirmware {
 # 		}
 	    }
 
+	    # If skip regions are defined, add them to the data.
+	    if (defined $_->{'skips'}) {
+		my $added = 0;
+		foreach my $region (@{$_->{'skips'}}) {
+		    if (($region->{'offset'} > 0) or
+			not ($_->{'header'} > 0)) {
+			$debug and printf("Inserted 0x%05X bytes (at offset 0x%05X) into <%s>\n",
+					  $region->{'size'}, $region->{'offset'}, $_->{'name'});
+			substr($_->{'data'},
+			       $region->{'offset'} + $added - $_->{'header'},
+			       0, $region->{'data'});
+			$added += $region->{'size'};
+		    }
+		}
+	    }
+
 	    # Splice the data into the image at the appropriate place, padding as required.
 	    substr($image_buf, $_->{'offset'}, $_->{'size'},
 		   $_->{'header'} ?
@@ -655,7 +787,7 @@ sub writeOutFirmware {
 	    # Keep the user appraised ...
 	    $quiet or printf("Wrote %s (0x%08X to 0x%08X) from <%s> into \"%s\"\n",
 			     ($_->{'size'} >= $block_size ?
-			      sprintf("%d blocks", numBlocks($_->{'size'})) :
+			      sprintf("%2d blocks", numBlocks($_->{'size'})) :
 			      sprintf("0x%05X bytes", $_->{'size'})),
 			     $_->{'offset'}, $_->{'offset'}+$_->{'size'}, $_->{'name'}, $filename);
 	}
@@ -682,18 +814,17 @@ sub writeOutFirmware {
 sub checkPartitionTable {
     my($data) = @_;
 
-    my($zero_long) = 0x0000;
-
-
     my($pointer) = 0;
     my($entry);
 
-    my($name, $flash_base, $size, $done, $padding);
+    my($name, $flash_base, $size, $done, $dummy_long, $padding);
     do {
 	$entry = substr($data, $pointer, 0x100);
 
-	($name,$flash_base,$zero_long,$size,$zero_long,$zero_long,$padding,$zero_long,$zero_long) = unpack("a16N5x212N2",$entry);
-	$debug and printf("pointer: %d\tname: %s\tflash_base: 0x%08X\tsize: 0x%08X\n", $pointer, $name, $flash_base, $size);
+	($name,$flash_base,$dummy_long,$size,$dummy_long,$dummy_long,$padding,$dummy_long,$dummy_long) = unpack("a16N5x212N2",$entry);
+	$name =~ s/\0//g;
+	$debug and printf("pointer: %d\tname: %s%sflash_base: 0x%08X\tsize: 0x%08X\n",
+			  $pointer, $name, (" " x (16 - length($name))), $flash_base, $size);
 	$pointer += 0x100;
 	$debug and printf("terminator: 0x%08X\n", unpack("C", substr($data, $pointer, 1)));
 	if (unpack("C", substr($data, $pointer, 1)) eq 0xff) {
@@ -705,29 +836,44 @@ sub checkPartitionTable {
 sub printPartitions {
     my(@partitions) = @_;
 
-    my($offset, $size);
+    my($offset, $size, $skips);
     map {
-#	defined $_->{'size'} ? $size = $_->{'size'} : $size = 'undef';
+#	defined $_->{'size'} ? $size = $_->{'size'} : $size = undef;
 
 	if (defined  $_->{'size'}) {
 	    $size = $_->{'size'};
 	}
 	else {
-	    $size = 'undef';
+	    $size = undef;
 	}
 	if (defined  $_->{'offset'}) {
 	    $offset = $_->{'offset'};
 	}
 	else {
-	    $offset = 'undef';
+	    $offset = undef;
 	}
-	printf("%s\t0x%08X\t0x%08X\n", $_->{'name'}, $offset, $size);
+	if (defined  $_->{'skips'}) {
+	    $skips = $_->{'skips'};
+	}
+	else {
+	    $skips = undef;
+	}
+	printf("%s%s", $_->{'name'}, (" " x (16 - length($_->{'name'}))));
+	if (defined $offset) { printf("0x%08X\t", $offset); } else { printf("(undefined)\t");   };
+	if (defined $size)   { printf("0x%08X", $size); } else { printf("(undefined)"); };
+	if (defined $skips) {
+	    printf("\t[%s]",
+		   join(", ",
+			map { sprintf("0x%05X/0x%05X", $_->{'offset'}, $_->{'size'}); }
+			@$skips));
+	}
+	printf("\n");
     } @partitions;
 }
 
 sub defaultPartitions {
 
-    return ({'name'=>'RedBoot',           'file'=>'RedBoot',
+    return ({'name'=>'RedBoot',          'file'=>'RedBoot',
 	     'offset'=>0x00000000,        'size'=>0x00040000,
 	     'variable'=>0, 'header'=>0,  'pseudo'=>0, 'data'=>undef, 'byteswap'=>0},
 	    {'name'=>'EthAddr',           'file'=>undef,
@@ -736,11 +882,14 @@ sub defaultPartitions {
 	    {'name'=>'SysConf',           'file'=>'SysConf',
 	     'offset'=>0x00040000,        'size'=>0x00020000,
 	     'variable'=>0, 'header'=>0,  'pseudo'=>0, 'data'=>undef, 'byteswap'=>0},
+	    {'name'=>'Loader',            'file'=>'apex.bin',
+	     'offset'=>undef,             'size'=>undef,
+	     'variable'=>1, 'header'=>16, 'pseudo'=>0, 'data'=>undef, 'byteswap'=>0},
 	    {'name'=>'Kernel',            'file'=>'vmlinuz',
-	     'offset'=>0x00060000,        'size'=>0x00100000,
-	     'variable'=>0, 'header'=>16, 'pseudo'=>0, 'data'=>undef, 'byteswap'=>0},
+	     'offset'=>undef,             'size'=>undef,
+	     'variable'=>1, 'header'=>16, 'pseudo'=>0, 'data'=>undef, 'byteswap'=>0},
 	    {'name'=>'Ramdisk',           'file'=>'ramdisk.gz',
-	     'offset'=>0x00160000,        'size'=>0x006a0000,
+	     'offset'=>undef,             'size'=>undef,
 	     'variable'=>1, 'header'=>16, 'pseudo'=>0, 'data'=>undef, 'byteswap'=>0},
 	    {'name'=>'FIS directory',     'file'=>undef,
 	     'offset'=>0x007e0000,        'size'=>0x00020000,
@@ -750,17 +899,14 @@ sub defaultPartitions {
 	     'variable'=>1, 'header'=>16, 'pseudo'=>1, 'data'=>undef, 'byteswap'=>0},
 	    {'name'=>'Trailer',           'file'=>'Trailer',
 	     'offset'=>0x007ffff0,        'size'=>0x00000010,
-	     'variable'=>0, 'header'=>0,  'pseudo'=>1, 'data'=>undef, 'byteswap'=>0},
-	    );
-
+	     'variable'=>0, 'header'=>0,  'pseudo'=>1, 'data'=>undef, 'byteswap'=>0});
 }
 
 # Main routine starts here ...
 
-my(@partitions) = defaultPartitions();
-
-my($unpack, $pack, $little, $input, $output, $redboot, $kernel, $sysconf, $ramdisk, $fisdir, $payload, $trailer, $ethaddr);
-my (@cleanup);
+my($unpack, $pack, $little, $input, $output, $redboot);
+my($kernel, $sysconf, $ramdisk, $fisdir);
+my($payload, $trailer, $ethaddr, $loader);
 
 END {
     # Remove temporary files
@@ -784,6 +930,7 @@ if (!GetOptions("d|debug"      => \$debug,
 		"y|payload=s"  => \$payload,
 		"t|trailer=s"  => \$trailer,
 		"e|ethaddr=s"  => \$ethaddr,
+		"L|loader=s"   => \$loader,
 		) or (not defined $pack and not defined $unpack)) {
     print "Usage: slugimage <options>\n";
     print "\n";
@@ -801,12 +948,15 @@ if (!GetOptions("d|debug"      => \$debug,
     print "  [-f|--fisdir]   <file>		Input/Output FIS directory filename\n";
     print "  [-y|--payload]  <file>		Input/Output Payload filename\n";
     print "  [-t|--trailer]  <file>		Input/Output Trailer filename\n";
+    print "  [-L|--loader]   <file>		Second stage boot loader filename\n";
     print "  [-e|--ethaddr]  <AABBCCDDEEFF>	Set the Ethernet address\n";
 
-    # TODO: document --ramdisk syntax
+    # %%% TODO %%% Document --ramdisk syntax
 
     exit 1;
 }
+
+my(@partitions) = defaultPartitions();
 
 if ($pack) {
     die "Output filename must be specified\n" unless defined $output;
@@ -815,7 +965,7 @@ if ($pack) {
     # explicitly specified, simply write an empty one as the upgrade tools
     # don't touch RedBoot and SysConf anyway.  If no Trailer is specified,
     # put in one.
-    if (!$redboot && ! -e "RedBoot") {
+    if (not defined $redboot and not -e "RedBoot") {
 	$redboot = tmpnam();
 	open TMP, ">$redboot" or die "Cannot open file $redboot: $!";
 	push @cleanup, $redboot;
@@ -828,7 +978,7 @@ if ($pack) {
 	}
 	close TMP;
     }
-    if (!$sysconf && ! -e "SysConf") {
+    if (not defined $sysconf and not -e "SysConf") {
 	$sysconf = tmpnam();
 	open TMP, ">$sysconf" or die "Cannot open file $sysconf: $!";
 	push @cleanup, $sysconf;
@@ -836,9 +986,9 @@ if ($pack) {
 	print TMP "\0"x131072;
 	close TMP;
     }
-    if (!$trailer && ! -e "Trailer") {
+    if (not defined $trailer and not -e "Trailer") {
 	$trailer = tmpnam();
-	open TMP, ">$trailer" or die "Cannot open file $redboot: $!";
+	open TMP, ">$trailer" or die "Cannot open file $trailer: $!";
 	push @cleanup, $trailer;
 	for my $i (@sercomm_flash_trailer) {
 	    print TMP pack "S", $i;
@@ -848,16 +998,18 @@ if ($pack) {
 }
 
 # Go through the partition options, and set the names and files in @partitions
-if (defined $redboot) { map { ($_->{'name'} eq 'RedBoot') 	&& ($_->{'file'} = $redboot); } @partitions; }
-if (defined $kernel)  { map { ($_->{'name'} eq 'Kernel')  	&& ($_->{'file'} = $kernel);  } @partitions; }
-if (defined $sysconf) { map { ($_->{'name'} eq 'SysConf') 	&& ($_->{'file'} = $sysconf); } @partitions; }
+if (defined $redboot) { map { ($_->{'name'} eq 'RedBoot')	&& ($_->{'file'} = $redboot); } @partitions; }
+if (defined $loader)  { map { ($_->{'name'} eq 'Loader')	&& ($_->{'file'} = $loader);  } @partitions; }
+if (defined $kernel)  { map { ($_->{'name'} eq 'Kernel')	&& ($_->{'file'} = $kernel);  } @partitions; }
+if (defined $sysconf) { map { ($_->{'name'} eq 'SysConf')	&& ($_->{'file'} = $sysconf); } @partitions; }
 if (defined $fisdir)  { map { ($_->{'name'} eq 'FIS directory') && ($_->{'file'} = $fisdir);  } @partitions; }
-if (defined $payload) { map { ($_->{'name'} eq 'Payload')       && ($_->{'file'} = $payload); } @partitions; }
-if (defined $trailer) { map { ($_->{'name'} eq 'Trailer')       && ($_->{'file'} = $trailer); } @partitions; }
+if (defined $payload) { map { ($_->{'name'} eq 'Payload')	&& ($_->{'file'} = $payload); } @partitions; }
+if (defined $trailer) { map { ($_->{'name'} eq 'Trailer')	&& ($_->{'file'} = $trailer); } @partitions; }
 
 if (defined $little)  {
     map {
-	if (($_->{'name'} eq 'Kernel') or
+	if (($_->{'name'} eq 'Loader') or
+	    ($_->{'name'} eq 'Kernel') or
 	    ($_->{'name'} eq 'Ramdisk')) {
 	    $_->{'byteswap'} = 1;
 	}
@@ -946,7 +1098,17 @@ if (defined $ramdisk) {
 
 # Read in the firmware image
 if ($input) {
+    if ($debug) {
+	print "Initial partition map:\n";
+	printPartitions(@partitions);
+    }
+    
     my $result = readInFirmware($input, \@partitions);
+
+    if ($debug) {
+	print "After reading firmware:\n";
+	printPartitions(@partitions);
+    }
 }
 
 # Unpack the firmware if requested
@@ -961,47 +1123,51 @@ if ($unpack) {
 
 }
 
-# Undefine the ramdisk size - it must be calculated for packing
-# map {
-#     ($_->{'name'} eq "Ramdisk") && ($_->{'size'} = undef);
-# } @partitions;
-
 # Pack the firmware if requested
 if ($pack) {
 
+    if (!defined $loader) {
+	removeOptionalLoader(\@partitions);
+    }
+
+    if ($debug) {
+	print "Initial partition map:\n";
+	printPartitions(@partitions);
+    }
+    
     my $result = readInFirmwareParts(@partitions);
 
-#     if ($debug) {
-# 	print "after readInFirmwareParts():\n";
-# 	printPartitions(@partitions);
+    if ($debug) {
+	print "after readInFirmwareParts():\n";
+	printPartitions(@partitions);
 # 	map {
 # 	    ($_->{'name'} eq 'RedBoot') && (printRedbootTrailer($_->{'data'}));
 # 	} @partitions;
-#     }
+    }
     
     layoutPartitions(@partitions);
 
-#     if ($debug) {
-# 	print "after layoutPartitions():\n";
-# 	printPartitions(@partitions);
-#     }
+    if ($debug) {
+ 	print "after layoutPartitions():\n";
+ 	printPartitions(@partitions);
+    }
     
     buildPartitionTable(@partitions);
 
-#     if ($debug) {
-# 	print "after buildPartitionTable():\n";
-# 	printPartitions(@partitions);
+    if ($debug) {
+ 	print "after buildPartitionTable():\n";
+ 	printPartitions(@partitions);
 
-# 	my($lastblock);
-# 	map {
-# 	    if ($_->{'name'} eq 'FIS directory') {
-# 		$lastblock = $_->{'data'};
-# 	    }
-# 	} @partitions;
+#  	my($lastblock);
+#  	map {
+#  	    if ($_->{'name'} eq 'FIS directory') {
+#  		$lastblock = $_->{'data'};
+#  	    }
+#  	} @partitions;
 
-# 	print "checkPartitionTable():\n";
-# 	checkPartitionTable($lastblock);
-#     }
+#  	print "checkPartitionTable():\n";
+#  	checkPartitionTable($lastblock);
+    }
     
     writeOutFirmware($output, @partitions);
 
