@@ -503,13 +503,24 @@ sub readInFirmwareParts {
 	    my $size;
 
 	    if ($_->{'header'}) {
-		$size = paddedSize($_->{'header'} + length($_->{'data'}));
+		if ($_->{'pseudo'}) {
+		    $size = $_->{'header'} + length($_->{'data'});
+		}
+		else {
+		    $size = paddedSize($_->{'header'} + length($_->{'data'}));
+		}
 	    }
 	    elsif (not $_->{'pseudo'}) {
 		$size = paddedSize(length($_->{'data'}));
 	    }
 	    else {
 		$size = length($_->{'data'});
+	    }
+
+	    # Check to make sure the file contents are not too large.
+	    if (defined $_->{'size'} and ($size > $_->{'size'})) {
+		die sprintf("Ran out of flash space in <%s> - %s too large.\n", $_->{'name'},
+			    sprintf("0x%05X bytes", ($size - $_->{'size'})));
 	    }
 
 	    # If the partition does not have a fixed size, the calculate the size.
@@ -646,8 +657,8 @@ sub layoutPartitions {
 
 	    # Extend to another block if required.
 	    if ($size > $_->{'size'}) {
-		$_->{'size'} = paddedSize($size);
-		$debug and printf("Extending partition <%s> to 0x%08X bytes\n", $_->{'name'}, $_->{'size'});
+		$_->{'size'} = $size;
+		printf("Extending partition <%s> to 0x%08X bytes\n", $_->{'name'}, $_->{'size'});
 	    }
 
 	    # Keep the user appraised ...
@@ -755,7 +766,7 @@ sub writeOutFirmware {
 		$debug and printf("Rewound %s before <%s> in \"%s\"\n",
 				  (($end_point - $_->{'offset'}) >= $block_size ?
 				   sprintf("%d blocks", numBlocks($end_point - $_->{'offset'})) :
-				   sprintf("0x%05X bytes", length($end_point - $_->{'offset'}))),
+				   sprintf("0x%05X bytes", $end_point - $_->{'offset'})),
 				  $_->{'name'}, $filename);
 # 		if (($end_point - $_->{'offset'}) >= $block_size) {
 # 		    die "Allocation error: rewound a full block or more ...\n";
@@ -894,9 +905,9 @@ sub defaultPartitions {
 	    {'name'=>'FIS directory',     'file'=>undef,
 	     'offset'=>0x007e0000,        'size'=>0x00020000,
 	     'variable'=>0, 'header'=>0,  'pseudo'=>0, 'data'=>undef, 'byteswap'=>0},
-	    {'name'=>'Payload',	          'file'=>undef,
-	     'offset'=>0x007e1000,        'size'=>0x0001eff0,
-	     'variable'=>1, 'header'=>16, 'pseudo'=>1, 'data'=>undef, 'byteswap'=>0},
+	    {'name'=>'Microcode',	  'file'=>undef,
+	     'offset'=>0x007e1000,        'size'=>0x0001b000,
+	     'variable'=>0, 'header'=>16, 'pseudo'=>1, 'data'=>undef, 'byteswap'=>0},
 	    {'name'=>'Trailer',           'file'=>'Trailer',
 	     'offset'=>0x007ffff0,        'size'=>0x00000010,
 	     'variable'=>0, 'header'=>0,  'pseudo'=>1, 'data'=>undef, 'byteswap'=>0});
@@ -906,7 +917,7 @@ sub defaultPartitions {
 
 my($unpack, $pack, $little, $input, $output, $redboot);
 my($kernel, $sysconf, $ramdisk, $fisdir);
-my($payload, $trailer, $ethaddr, $loader);
+my($microcode, $trailer, $ethaddr, $loader);
 
 END {
     # Remove temporary files
@@ -915,22 +926,22 @@ END {
     }
 }
 
-if (!GetOptions("d|debug"      => \$debug,
-		"q|quiet"      => \$quiet,
-		"u|unpack"     => \$unpack,
-		"p|pack"       => \$pack,
-		"l|little"     => \$little,
-		"i|input=s"    => \$input,
-		"o|output=s"   => \$output,
-		"b|redboot=s"  => \$redboot,
-		"k|kernel=s"   => \$kernel,
-		"s|sysconf=s"  => \$sysconf,
-		"r|ramdisk=s"  => \$ramdisk,
-		"f|fisdir=s"   => \$fisdir,
-		"y|payload=s"  => \$payload,
-		"t|trailer=s"  => \$trailer,
-		"e|ethaddr=s"  => \$ethaddr,
-		"L|loader=s"   => \$loader,
+if (!GetOptions("d|debug"       => \$debug,
+		"q|quiet"       => \$quiet,
+		"u|unpack"      => \$unpack,
+		"p|pack"        => \$pack,
+		"l|little"      => \$little,
+		"i|input=s"     => \$input,
+		"o|output=s"    => \$output,
+		"b|redboot=s"   => \$redboot,
+		"k|kernel=s"    => \$kernel,
+		"s|sysconf=s"   => \$sysconf,
+		"r|ramdisk=s"   => \$ramdisk,
+		"f|fisdir=s"    => \$fisdir,
+		"m|microcode=s" => \$microcode,
+		"t|trailer=s"   => \$trailer,
+		"e|ethaddr=s"   => \$ethaddr,
+		"L|loader=s"    => \$loader,
 		) or (not defined $pack and not defined $unpack)) {
     print "Usage: slugimage <options>\n";
     print "\n";
@@ -939,17 +950,17 @@ if (!GetOptions("d|debug"      => \$debug,
     print "  [-u|--unpack]			Unpack a firmware image\n";
     print "  [-p|--pack]			Pack a firmware image\n";
     print "  [-l|--little]			Convert Kernel and Ramdisk to little-endian\n";
-    print "  [-i|--input]    <file>		Input firmware image filename\n";
-    print "  [-o|--output]   <file>		Output firmware image filename\n";
-    print "  [-b|--redboot]  <file>		Input/Output RedBoot filename\n";
-    print "  [-k|--kernel]   <file>		Input/Ouptut Kernel filename\n";
-    print "  [-s|--sysconf]  <file>		Input/Output SysConf filename\n";
-    print "  [-r|--ramdisk]  <file>		Input/Output Ramdisk filename(s)\n";
-    print "  [-f|--fisdir]   <file>		Input/Output FIS directory filename\n";
-    print "  [-y|--payload]  <file>		Input/Output Payload filename\n";
-    print "  [-t|--trailer]  <file>		Input/Output Trailer filename\n";
-    print "  [-L|--loader]   <file>		Second stage boot loader filename\n";
-    print "  [-e|--ethaddr]  <AABBCCDDEEFF>	Set the Ethernet address\n";
+    print "  [-i|--input]     <file>		Input firmware image filename\n";
+    print "  [-o|--output]    <file>		Output firmware image filename\n";
+    print "  [-b|--redboot]   <file>		Input/Output RedBoot filename\n";
+    print "  [-k|--kernel]    <file>		Input/Ouptut Kernel filename\n";
+    print "  [-s|--sysconf]   <file>		Input/Output SysConf filename\n";
+    print "  [-r|--ramdisk]   <file>		Input/Output Ramdisk filename(s)\n";
+    print "  [-f|--fisdir]    <file>		Input/Output FIS directory filename\n";
+    print "  [-m|--microcode] <file>		Input/Output Microcode filename\n";
+    print "  [-t|--trailer]   <file>		Input/Output Trailer filename\n";
+    print "  [-L|--loader]    <file>		Second stage boot loader filename\n";
+    print "  [-e|--ethaddr]   <AABBCCDDEEFF>	Set the Ethernet address\n";
 
     # %%% TODO %%% Document --ramdisk syntax
 
@@ -998,13 +1009,13 @@ if ($pack) {
 }
 
 # Go through the partition options, and set the names and files in @partitions
-if (defined $redboot) { map { ($_->{'name'} eq 'RedBoot')	&& ($_->{'file'} = $redboot); } @partitions; }
-if (defined $loader)  { map { ($_->{'name'} eq 'Loader')	&& ($_->{'file'} = $loader);  } @partitions; }
-if (defined $kernel)  { map { ($_->{'name'} eq 'Kernel')	&& ($_->{'file'} = $kernel);  } @partitions; }
-if (defined $sysconf) { map { ($_->{'name'} eq 'SysConf')	&& ($_->{'file'} = $sysconf); } @partitions; }
-if (defined $fisdir)  { map { ($_->{'name'} eq 'FIS directory') && ($_->{'file'} = $fisdir);  } @partitions; }
-if (defined $payload) { map { ($_->{'name'} eq 'Payload')	&& ($_->{'file'} = $payload); } @partitions; }
-if (defined $trailer) { map { ($_->{'name'} eq 'Trailer')	&& ($_->{'file'} = $trailer); } @partitions; }
+if (defined $redboot)   { map { ($_->{'name'} eq 'RedBoot')	  && ($_->{'file'} = $redboot);   } @partitions; }
+if (defined $loader)    { map { ($_->{'name'} eq 'Loader')	  && ($_->{'file'} = $loader);    } @partitions; }
+if (defined $kernel)    { map { ($_->{'name'} eq 'Kernel')	  && ($_->{'file'} = $kernel);    } @partitions; }
+if (defined $sysconf)   { map { ($_->{'name'} eq 'SysConf')	  && ($_->{'file'} = $sysconf);   } @partitions; }
+if (defined $fisdir)    { map { ($_->{'name'} eq 'FIS directory') && ($_->{'file'} = $fisdir);    } @partitions; }
+if (defined $microcode) { map { ($_->{'name'} eq 'Microcode')	  && ($_->{'file'} = $microcode); } @partitions; }
+if (defined $trailer)   { map { ($_->{'name'} eq 'Trailer')	  && ($_->{'file'} = $trailer);   } @partitions; }
 
 if (defined $little)  {
     map {
