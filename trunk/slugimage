@@ -905,9 +905,9 @@ sub defaultPartitions {
 	    {'name'=>'FIS directory',     'file'=>undef,
 	     'offset'=>0x007e0000,        'size'=>0x00020000,
 	     'variable'=>0, 'header'=>0,  'pseudo'=>0, 'data'=>undef, 'byteswap'=>0},
-	    {'name'=>'Microcode',	  'file'=>undef,
-	     'offset'=>0x007e1000,        'size'=>0x0001b000,
-	     'variable'=>0, 'header'=>16, 'pseudo'=>1, 'data'=>undef, 'byteswap'=>0},
+#	    {'name'=>'Microcode',	  'file'=>undef,
+#	     'offset'=>0x007e1000,        'size'=>0x0001b000,
+#	     'variable'=>0, 'header'=>16, 'pseudo'=>1, 'data'=>undef, 'byteswap'=>0},
 	    {'name'=>'Trailer',           'file'=>'Trailer',
 	     'offset'=>0x007ffff0,        'size'=>0x00000010,
 	     'variable'=>0, 'header'=>0,  'pseudo'=>1, 'data'=>undef, 'byteswap'=>0});
@@ -938,7 +938,7 @@ if (!GetOptions("d|debug"       => \$debug,
 		"s|sysconf=s"   => \$sysconf,
 		"r|ramdisk=s"   => \$ramdisk,
 		"f|fisdir=s"    => \$fisdir,
-		"m|microcode=s" => \$microcode,
+#		"m|microcode=s" => \$microcode,
 		"t|trailer=s"   => \$trailer,
 		"e|ethaddr=s"   => \$ethaddr,
 		"L|loader=s"    => \$loader,
@@ -957,7 +957,7 @@ if (!GetOptions("d|debug"       => \$debug,
     print "  [-s|--sysconf]   <file>		Input/Output SysConf filename\n";
     print "  [-r|--ramdisk]   <file>		Input/Output Ramdisk filename(s)\n";
     print "  [-f|--fisdir]    <file>		Input/Output FIS directory filename\n";
-    print "  [-m|--microcode] <file>		Input/Output Microcode filename\n";
+#    print "  [-m|--microcode] <file>		Input/Output Microcode filename\n";
     print "  [-t|--trailer]   <file>		Input/Output Trailer filename\n";
     print "  [-L|--loader]    <file>		Second stage boot loader filename\n";
     print "  [-e|--ethaddr]   <AABBCCDDEEFF>	Set the Ethernet address\n";
@@ -1014,7 +1014,7 @@ if (defined $loader)    { map { ($_->{'name'} eq 'Loader')	  && ($_->{'file'} = 
 if (defined $kernel)    { map { ($_->{'name'} eq 'Kernel')	  && ($_->{'file'} = $kernel);    } @partitions; }
 if (defined $sysconf)   { map { ($_->{'name'} eq 'SysConf')	  && ($_->{'file'} = $sysconf);   } @partitions; }
 if (defined $fisdir)    { map { ($_->{'name'} eq 'FIS directory') && ($_->{'file'} = $fisdir);    } @partitions; }
-if (defined $microcode) { map { ($_->{'name'} eq 'Microcode')	  && ($_->{'file'} = $microcode); } @partitions; }
+#if (defined $microcode) { map { ($_->{'name'} eq 'Microcode')	  && ($_->{'file'} = $microcode); } @partitions; }
 if (defined $trailer)   { map { ($_->{'name'} eq 'Trailer')	  && ($_->{'file'} = $trailer);   } @partitions; }
 
 if (defined $little)  {
