@@ -138,6 +138,7 @@ sub parsePartitionEntry {
 
     # A partition entry starting with 0xFF terminates the table.
     if (unpack("C", $name) eq 0xff) {
+	# %%% FIXME: This should only skip, not terminate. %%%
 	$debug and print "Found terminator for <FIS directory>\n";
 	return 0;
     }
@@ -181,6 +182,7 @@ sub parsePartitionTable {
     my($partition_count) = 0;
 
     # Loop through the fixed size partition table entries, and store the entries in @partitions.
+    # %%% FIXME: This doesn't handle the case of a completely full partition table. %%%
     while ($fields_ref = parsePartitionEntry(substr($partition_table, $partition_count * $entry_len, $entry_len))) {
 	$debug and printf("Found <%s> at 0x%08X (%s)%s\n", $fields_ref->[0], $fields_ref->[1],
 			  ($fields_ref->[2] >= $block_size ?
@@ -903,11 +905,11 @@ sub defaultPartitions {
 	     'offset'=>undef,             'size'=>undef,
 	     'variable'=>1, 'header'=>16, 'pseudo'=>0, 'data'=>undef, 'byteswap'=>0},
 	    {'name'=>'FIS directory',     'file'=>undef,
-	     'offset'=>0x007e0000,        'size'=>0x00020000,
+	     'offset'=>0x007e0000,        'size'=>0x00001000,
 	     'variable'=>0, 'header'=>0,  'pseudo'=>0, 'data'=>undef, 'byteswap'=>0},
-#	    {'name'=>'Microcode',	  'file'=>undef,
-#	     'offset'=>0x007e1000,        'size'=>0x0001b000,
-#	     'variable'=>0, 'header'=>16, 'pseudo'=>1, 'data'=>undef, 'byteswap'=>0},
+	    {'name'=>'Microcode',	  'file'=>undef,
+	     'offset'=>0x007e1000,        'size'=>0x0001b000,
+	     'variable'=>0, 'header'=>16, 'pseudo'=>1, 'data'=>undef, 'byteswap'=>0},
 	    {'name'=>'Trailer',           'file'=>'Trailer',
 	     'offset'=>0x007ffff0,        'size'=>0x00000010,
 	     'variable'=>0, 'header'=>0,  'pseudo'=>1, 'data'=>undef, 'byteswap'=>0});
@@ -938,7 +940,7 @@ if (!GetOptions("d|debug"       => \$debug,
 		"s|sysconf=s"   => \$sysconf,
 		"r|ramdisk=s"   => \$ramdisk,
 		"f|fisdir=s"    => \$fisdir,
-#		"m|microcode=s" => \$microcode,
+		"m|microcode=s" => \$microcode,
 		"t|trailer=s"   => \$trailer,
 		"e|ethaddr=s"   => \$ethaddr,
 		"L|loader=s"    => \$loader,
@@ -957,7 +959,7 @@ if (!GetOptions("d|debug"       => \$debug,
     print "  [-s|--sysconf]   <file>		Input/Output SysConf filename\n";
     print "  [-r|--ramdisk]   <file>		Input/Output Ramdisk filename(s)\n";
     print "  [-f|--fisdir]    <file>		Input/Output FIS directory filename\n";
-#    print "  [-m|--microcode] <file>		Input/Output Microcode filename\n";
+    print "  [-m|--microcode] <file>		Input/Output Microcode filename\n";
     print "  [-t|--trailer]   <file>		Input/Output Trailer filename\n";
     print "  [-L|--loader]    <file>		Second stage boot loader filename\n";
     print "  [-e|--ethaddr]   <AABBCCDDEEFF>	Set the Ethernet address\n";
@@ -1014,7 +1016,7 @@ if (defined $loader)    { map { ($_->{'name'} eq 'Loader')	  && ($_->{'file'} = 
 if (defined $kernel)    { map { ($_->{'name'} eq 'Kernel')	  && ($_->{'file'} = $kernel);    } @partitions; }
 if (defined $sysconf)   { map { ($_->{'name'} eq 'SysConf')	  && ($_->{'file'} = $sysconf);   } @partitions; }
 if (defined $fisdir)    { map { ($_->{'name'} eq 'FIS directory') && ($_->{'file'} = $fisdir);    } @partitions; }
-#if (defined $microcode) { map { ($_->{'name'} eq 'Microcode')	  && ($_->{'file'} = $microcode); } @partitions; }
+if (defined $microcode) { map { ($_->{'name'} eq 'Microcode')	  && ($_->{'file'} = $microcode); } @partitions; }
 if (defined $trailer)   { map { ($_->{'name'} eq 'Trailer')	  && ($_->{'file'} = $trailer);   } @partitions; }
 
 if (defined $little)  {
