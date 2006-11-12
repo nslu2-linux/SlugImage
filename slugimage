@@ -416,10 +416,9 @@ sub readInFirmware {
 		    # Read the length, and grab the data based on the length.
 		    my($data_len) = unpack("N", substr($firmware_buf, $_->{'offset'}));
 
-		    $debug and printf("Found header size of 0x%08X bytes for <%s>\n", $data_len, $_->{'name'});
-
 		    # A length of 0xFFFFFFFF means that the area is not initialised
 		    if ($data_len != 0xFFFFFFFF) {
+			$debug and printf("Found header size of 0x%08X bytes for <%s>\n", $data_len, $_->{'name'});
 			$_->{'data'} = substr($firmware_buf, $_->{'offset'} + $_->{'header'}, $data_len);
 		    }
 		}
