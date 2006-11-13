@@ -910,7 +910,7 @@ sub defaultPartitions {
 	     'offset'=>undef,             'size'=>undef,
 	     'variable'=>1, 'header'=>16, 'pseudo'=>0, 'data'=>undef, 'byteswap'=>0},
 	    {'name'=>'FIS directory',     'file'=>undef,
-	     'offset'=>0x007e0000,        'size'=>0x00010000,
+	     'offset'=>0x007e0000,        'size'=>0x00020000,
 	     'variable'=>0, 'header'=>0,  'pseudo'=>0, 'data'=>undef, 'byteswap'=>0},
 	    {'name'=>'Microcode',	  'file'=>undef,
 	     'offset'=>0x007f0000,        'size'=>0x0000C000,
