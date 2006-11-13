@@ -586,6 +586,8 @@ sub layoutPartitions {
 
     map {
 
+	$debug and printf("Pointer is 0x%08X\n", $pointer);
+
 	# If this is the last variable size partition, then fill the rest of the space.
 	if ($_->{'name'} eq $lastdisk->{'name'}) {
 	    $_->{'size'} = paddedSize($directory_offset + $flash_start - $pointer);
@@ -677,8 +679,12 @@ sub layoutPartitions {
 		die "Ran out of flash space in <", $_->{'name'}, ">\n";
 	    }
 
+	    $debug and printf("Moving pointer from 0x%08X to 0x%08X (0x%08X + 0x%08X)\n",
+			      $pointer, paddedSize($_->{'start'} + $_->{'size'}),
+			      $_->{'start'}, $_->{'size'});
+
 	    # Move the pointer up, in preparation for the next partition.
-	    $pointer = $_->{'start'} + paddedSize($_->{'size'});
+	    $pointer = paddedSize($_->{'start'} + $_->{'size'});
 
 	}
 
@@ -904,10 +910,10 @@ sub defaultPartitions {
 	     'offset'=>undef,             'size'=>undef,
 	     'variable'=>1, 'header'=>16, 'pseudo'=>0, 'data'=>undef, 'byteswap'=>0},
 	    {'name'=>'FIS directory',     'file'=>undef,
-	     'offset'=>0x007e0000,        'size'=>0x00001000,
+	     'offset'=>0x007e0000,        'size'=>0x00010000,
 	     'variable'=>0, 'header'=>0,  'pseudo'=>0, 'data'=>undef, 'byteswap'=>0},
 	    {'name'=>'Microcode',	  'file'=>undef,
-	     'offset'=>0x007e1000,        'size'=>0x0001b000,
+	     'offset'=>0x007f0000,        'size'=>0x0000C000,
 	     'variable'=>0, 'header'=>16, 'pseudo'=>1, 'data'=>undef, 'byteswap'=>0},
 	    {'name'=>'Trailer',           'file'=>'Trailer',
 	     'offset'=>0x007ffff0,        'size'=>0x00000010,
