@@ -1016,6 +1016,11 @@ if ($pack) {
 	}
 	close TMP;
     }
+
+    # If the microcode was not specified, then don't complain that it's missing.
+    if (not defined $microcode and not -e "NPE-B") {
+	map { ($_->{'name'} eq 'Microcode') && ($_->{'file'} = undef);   } @partitions;
+    }
 }
 
 # Go through the partition options, and set the names and files in @partitions
