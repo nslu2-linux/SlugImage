@@ -410,7 +410,7 @@ sub readInFirmware {
 	    }
 	    else {
 
-		# Slurp up the data, based on whether a header is present or not
+		# Slurp up the data, based on whether a header and/or data is present or not
 		if ($_->{'header'}) {
 
 		    # Read the length, and grab the data based on the length.
@@ -421,6 +421,11 @@ sub readInFirmware {
 			$debug and printf("Found header size of 0x%08X bytes for <%s>\n", $data_len, $_->{'name'});
 			$_->{'data'} = substr($firmware_buf, $_->{'offset'} + $_->{'header'}, $data_len);
 		    }
+		}
+		elsif ($_->{'pseudo'} and not defined $_->{'file'} and
+		       (substr($firmware_buf, $_->{'offset'}, $_->{'size'}) eq
+			(pack("C", 0xff) x $_->{'size'}))) {
+		    $debug and printf("Skipping empty pseudo partition <%s>\n", $_->{'name'});
 		}
 		else {
 
