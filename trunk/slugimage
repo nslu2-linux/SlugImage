@@ -1113,12 +1113,9 @@ if (defined $ramdisk) {
 
 	    # If the user has specified a size, then respect their wishes
 	    if (defined $size) {
-		$entry{'size'} = $size * $block_size;
+		$entry{'size'} = $size * $block_size - $entry{'header'};
 		# Create an empty partition of the requested size.
 		$entry{'data'} = padBytes("", $entry{'size'});
-		if ($entry{'header'}) {
-		    $entry{'data'} = padBytes("", $entry{'size'} - $entry{'header'});
-		}
 	    }
 
 	    \%entry;
