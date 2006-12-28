@@ -1,0 +1,5 @@
+#!/bin/sh
+image=$(tempfile)
+../slugimage -d -p -o $image -L files/128KiB-16 -k files/896KiB-16 -r Flashdisk:files/6656KiB-16
+hexdump -C $image > $1
+rm -rf $image
