@@ -15,6 +15,8 @@ dd if=/dev/zero of=files/896KiB-32 bs=917472 count=1	> /dev/null 2>&1
 dd if=/dev/zero of=files/1MiB bs=1048576 count=1	> /dev/null 2>&1
 dd if=/dev/zero of=files/1MiB-16 bs=1048560 count=1	> /dev/null 2>&1
 dd if=/dev/zero of=files/1MiB-32 bs=1048544 count=1	> /dev/null 2>&1
+dd if=/dev/zero of=files/6656KiB-16 bs=6815728 count=1	> /dev/null 2>&1
+dd if=/dev/zero of=files/6656KiB bs=6815744 count=1	> /dev/null 2>&1
 
 export NONINTERACTIVE="yes"
 for test in `find . -name "*.test" | grep -v ^./broken/`; do

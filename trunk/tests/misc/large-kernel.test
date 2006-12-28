@@ -1,0 +1,5 @@
+#!/bin/sh
+
+# This test is expected to fail with a fatal error.
+../slugimage -p -o /dev/null -k files/1MiB -r Ramdisk:files/1MiB-16 2> $1
+
