@@ -562,6 +562,11 @@ sub readInFirmwareParts {
 sub layoutPartitions {
     my(@partitions) = @_;
 
+    # Find the kernel partition, and save a pointer to it for later use
+    my $kernel;
+    map { ($_->{'name'} eq "Kernel") && ($kernel = $_); } @partitions;
+    $kernel or die "Couldn't find the kernel partition\n";
+
     # Find the last variable size partition, and save a pointer to it for later use
     my $lastdisk;
     my $directory_offset;
@@ -925,7 +930,7 @@ sub defaultPartitions {
 	     'offset'=>0x007f8000,        'size'=>0x00004000,
 	     'variable'=>0, 'header'=>0,  'pseudo'=>1, 'data'=>undef, 'byteswap'=>0},
 	    {'name'=>'Microcode',	  'file'=>'NPE-B',
-	     'offset'=>0x007fc000,        'size'=>0x00003ff0,
+	     'offset'=>0x007fc000,        'size'=>0x00003000,
 	     'variable'=>0, 'header'=>16, 'pseudo'=>1, 'data'=>undef, 'byteswap'=>0},
 	    {'name'=>'Trailer',           'file'=>'Trailer',
 	     'offset'=>0x007ffff0,        'size'=>0x00000010,
@@ -1117,9 +1122,9 @@ if (defined $ramdisk) {
 
 	    # If the user has specified a size, then respect their wishes
 	    if (defined $size) {
-		$entry{'size'} = $size * $block_size - $entry{'header'};
+		$entry{'size'} = $size * $block_size;
 		# Create an empty partition of the requested size.
-		$entry{'data'} = padBytes("", $entry{'size'});
+		$entry{'data'} = padBytes("", $entry{'size'} - $entry{'header'});
 	    }
 
 	    \%entry;
