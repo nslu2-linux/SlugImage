@@ -1,0 +1,70 @@
+Initial partition map:
+RedBoot         0x00000000	0x00040000
+EthAddr         0x0003FFB0	0x00000006
+SysConf         0x00040000	0x00020000
+Kernel          0x00060000	0x00100000
+Ramdisk         0x00160000	(undefined)
+FIS directory   0x007E0000	0x00020000
+Microcode       0x007E1000	0x0001B000
+Trailer         0x007FFFF0	0x00000010
+Read 0x00040000 bytes from "files/256KiB" into <RedBoot> (2 blocks / 2 blocks)
+Read 0x00020000 bytes from "files/128KiB" into <SysConf> (1 blocks / 1 blocks)
+Read 0x000FFFF0 bytes from "files/1MiB-16" into <Kernel> (8 blocks / 8 blocks)
+Read 0x000FFFF0 bytes from "files/1MiB-16" into <Ramdisk> (8 blocks / 8 blocks)
+Read 0x00000010 bytes from "files/16B" into <Trailer> (0x00010 bytes / 0x00010 bytes)
+after readInFirmwareParts():
+RedBoot         0x00000000	0x00040000
+EthAddr         0x0003FFB0	0x00000006
+SysConf         0x00040000	0x00020000
+Kernel          0x00060000	0x00100000
+Ramdisk         0x00160000	0x00100000
+FIS directory   0x007E0000	0x00020000
+Microcode       0x007E1000	0x0001B000
+Trailer         0x007FFFF0	0x00000010
+Last variable size partition is <Ramdisk>
+Allocated <RedBoot> from 0x50000000 to 0x50040000 (2 blocks / 2 blocks)
+Allocated <EthAddr> from 0x5003FFB0 to 0x5003FFB6 (0x00000 bytes / 0x00006 bytes)
+Allocated <SysConf> from 0x50040000 to 0x50060000 (1 blocks / 1 blocks)
+Allocated <Kernel> from 0x50060000 to 0x50160000 (8 blocks / 8 blocks)
+Padding last variable partition <Ramdisk> to 0x00680000 bytes
+Allocated <Ramdisk> from 0x50160000 to 0x507E0000 (8 blocks / 52 blocks)
+Allocated <FIS directory> from 0x507E0000 to 0x50800000 (0x00000 bytes / 1 blocks)
+Allocated <Microcode> from 0x507E1000 to 0x507FC000 (0x00010 bytes / 0x1B000 bytes)
+Allocated <Trailer> from 0x507FFFF0 to 0x50800000 (0x00010 bytes / 0x00010 bytes)
+after layoutPartitions():
+RedBoot         0x00000000	0x00040000
+EthAddr         0x0003FFB0	0x00000006
+SysConf         0x00040000	0x00020000
+Kernel          0x00060000	0x00100000	[0x00000/0x00010]
+Ramdisk         0x00160000	0x00680000	[0x00000/0x00010]
+FIS directory   0x007E0000	0x00020000
+Microcode       0x007E1000	0x0001B000	[0x00000/0x00010]
+Trailer         0x007FFFF0	0x00000010
+Table entry <RedBoot> from 0x50000000 to 0x50040000 (2 blocks / 2 blocks)
+No table entry required for <EthAddr>
+Table entry <SysConf> from 0x50040000 to 0x50060000 (1 blocks / 1 blocks)
+Table entry <Kernel> from 0x50060000 to 0x50160000 (8 blocks / 8 blocks)
+Table entry <Kernel> skip 0x00000000 to 0x0000000F
+Table entry <Ramdisk> from 0x50160000 to 0x507E0000 (8 blocks / 52 blocks)
+Table entry <Ramdisk> skip 0x00000000 to 0x0000000F
+Table entry <FIS directory> from 0x507E0000 to 0x50800000 (1 blocks / 1 blocks)
+No table entry required for <Microcode>
+No table entry required for <Trailer>
+after buildPartitionTable():
+RedBoot         0x00000000	0x00040000
+EthAddr         0x0003FFB0	0x00000006
+SysConf         0x00040000	0x00020000
+Kernel          0x00060000	0x00100000	[0x00000/0x00010]
+Ramdisk         0x00160000	0x00680000	[0x00000/0x00010]
+FIS directory   0x007E0000	0x00020000
+Microcode       0x007E1000	0x0001B000	[0x00000/0x00010]
+Trailer         0x007FFFF0	0x00000010
+Wrote  2 blocks (0x00000000 to 0x00040000) from <RedBoot> into "/dev/null"
+Skipping <EthAddr> (no data available)
+Wrote  1 blocks (0x00040000 to 0x00060000) from <SysConf> into "/dev/null"
+Wrote  8 blocks (0x00060000 to 0x00160000) from <Kernel> into "/dev/null"
+Wrote 52 blocks (0x00160000 to 0x007E0000) from <Ramdisk> into "/dev/null"
+Wrote  1 blocks (0x007E0000 to 0x00800000) from <FIS directory> into "/dev/null"
+Skipping <Microcode> (no data available)
+Rewound 0x00010 bytes before <Trailer> in "/dev/null"
+Wrote 0x00010 bytes (0x007FFFF0 to 0x00800000) from <Trailer> into "/dev/null"

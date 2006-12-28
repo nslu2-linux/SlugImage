@@ -1,0 +1,43 @@
+#!/bin/bash
+
+[ "$TEST_VERBOSE" ] || export TEST_VERBOSE=0
+
+mkdir -p files
+dd if=/dev/zero of=files/16B bs=16 count=1		> /dev/null 2>&1
+dd if=/dev/zero of=files/128KiB bs=131072 count=1	> /dev/null 2>&1
+dd if=/dev/zero of=files/128KiB-16 bs=131056 count=1	> /dev/null 2>&1
+dd if=/dev/zero of=files/128KiB-32 bs=131040 count=1	> /dev/null 2>&1
+dd if=/dev/zero of=files/256KiB bs=262144 count=1	> /dev/null 2>&1
+dd if=/dev/zero of=files/256KiB-16 bs=262128 count=1	> /dev/null 2>&1
+dd if=/dev/zero of=files/896KiB bs=917504 count=1	> /dev/null 2>&1
+dd if=/dev/zero of=files/896KiB-16 bs=917488 count=1	> /dev/null 2>&1
+dd if=/dev/zero of=files/896KiB-32 bs=917472 count=1	> /dev/null 2>&1
+dd if=/dev/zero of=files/1MiB bs=1048576 count=1	> /dev/null 2>&1
+dd if=/dev/zero of=files/1MiB-16 bs=1048560 count=1	> /dev/null 2>&1
+dd if=/dev/zero of=files/1MiB-32 bs=1048544 count=1	> /dev/null 2>&1
+
+export NONINTERACTIVE="yes"
+for test in `find . -name "*.test" | grep -v ^./broken/`; do
+	test="${test/.test}"
+	echo -n "Running test $test... "
+	if $(./do-test $test); then
+		echo "ok"
+	else
+		echo "not ok"
+		FAIL=1
+	fi
+done
+if [ -e broken ]; then
+	for broken in `find broken -name "*.test"`; do
+		echo "Warning: $broken exists"
+	done
+fi
+
+# rm -f files
+
+if [ $FAIL ]; then
+	exit 1
+else
+	exit 0
+fi
+
