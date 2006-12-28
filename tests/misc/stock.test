@@ -1,0 +1,2 @@
+#!/bin/sh
+slugimage -d -p -o /dev/null -b files/256KiB -k files/1MiB-16 -s files/128KiB -r Ramdisk:files/1MiB-16 -t files/16B > $1 2>&1
