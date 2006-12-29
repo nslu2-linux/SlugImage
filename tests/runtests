@@ -21,6 +21,7 @@ dd if=/dev/zero of=files/1024KiB-16 bs=1048560 count=1	> /dev/null 2>&1
 dd if=/dev/zero of=files/1024KiB-32 bs=1048544 count=1	> /dev/null 2>&1
 dd if=/dev/zero of=files/1280KiB+4 bs=1310724 count=1	> /dev/null 2>&1
 dd if=/dev/zero of=files/4096KiB bs=4194304 count=1	> /dev/null 2>&1
+dd if=/dev/zero of=files/6400KiB bs=6553600 count=1	> /dev/null 2>&1
 dd if=/dev/zero of=files/6528KiB-16 bs=6684656 count=1	> /dev/null 2>&1
 dd if=/dev/zero of=files/6528KiB bs=6684672 count=1	> /dev/null 2>&1
 dd if=/dev/zero of=files/6528KiB+16 bs=6684688 count=1	> /dev/null 2>&1
