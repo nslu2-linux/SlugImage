@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 image=$(tempfile)
 ../slugimage -d -p -o $image -L files/128KiB-16 -k files/1024KiB-32 -r Flashdisk:files/6528KiB
 hexdump -C $image > $1

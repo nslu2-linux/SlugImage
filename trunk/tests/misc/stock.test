@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 image=$(tempfile)
 ../slugimage -d -p -o $image -k files/1024KiB-16 -r Ramdisk:files/6656KiB-16
 hexdump -C $image > $1
