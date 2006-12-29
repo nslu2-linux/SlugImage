@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/sh
 
 # This test is expected to fail with a fatal error.
 ../slugimage -d -p -o /dev/null -k files/1024KiB-16 -r Ramdisk:1,Flashdisk:files/6528KiB+16 2> $1
