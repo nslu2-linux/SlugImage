@@ -1,0 +1,56 @@
+.\" -*- nroff -*-
+.TH SLUGIMAGE 1
+.SH NAME
+slugimage \- Manipulate NSLU2 firmware images
+.SH SYNOPSIS
+.B slugimage [-p|-u] [options]
+.SH DESCRIPTION
+slugimage can be used to create or unpack NSLU2 firmware images.
+.SH OPTIONS
+.TP
+.B -d, --debug
+Turn on debugging output
+.TP
+.B -q, --quiet
+Turn off status messages
+.TP
+.B -u, --unpack
+Unpack a firmware image
+.TP
+.B -p, --pack
+Pack a firmware image
+.TP
+.B -l, --little
+Convert Kernel and Ramdisk to little-endian
+.TP
+.B -i, --input
+Input firmware image filename
+.TP
+.B -o, --output
+Output firmware image filename
+.TP
+.B -b, --redboot
+Input/Output RedBoot filename
+.TP
+.B -k, --kernel
+Input/Ouptut Kernel filename
+.TP
+.B -s, --sysconf
+Input/Output SysConf filename
+.TP
+.B -r, --ramdisk
+Input/Output Ramdisk filename(s)
+.TP
+.B -f, --fisdir
+Input/Output FIS directory filename
+.TP
+.B -y, --payload
+Input/Output Payload filename
+.TP
+.B -t, --trailer 
+Input/Output Trailer filename
+.TP
+.B -e, --ethaddr
+Set the Ethernet address
+.SH AUTHOR 
+This man page was written by Joey Hess, <joey@kitenet.net>.
