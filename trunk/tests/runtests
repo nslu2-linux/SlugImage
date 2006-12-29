@@ -3,26 +3,15 @@
 [ "$TEST_VERBOSE" ] || export TEST_VERBOSE=0
 
 mkdir -p files
-dd if=/dev/zero of=files/16B bs=16 count=1		> /dev/null 2>&1
-dd if=/dev/zero of=files/128KiB bs=131072 count=1	> /dev/null 2>&1
 dd if=/dev/zero of=files/128KiB-16 bs=131056 count=1	> /dev/null 2>&1
-dd if=/dev/zero of=files/128KiB-32 bs=131040 count=1	> /dev/null 2>&1
-dd if=/dev/zero of=files/256KiB bs=262144 count=1	> /dev/null 2>&1
-dd if=/dev/zero of=files/256KiB-16 bs=262128 count=1	> /dev/null 2>&1
-dd if=/dev/zero of=files/640KiB bs=655360 count=1	> /dev/null 2>&1
 dd if=/dev/zero of=files/640KiB-16 bs=655344 count=1	> /dev/null 2>&1
-dd if=/dev/zero of=files/768KiB bs=804864 count=1	> /dev/null 2>&1
 dd if=/dev/zero of=files/768KiB-16 bs=804848 count=1	> /dev/null 2>&1
-dd if=/dev/zero of=files/896KiB bs=917504 count=1	> /dev/null 2>&1
 dd if=/dev/zero of=files/896KiB-16 bs=917488 count=1	> /dev/null 2>&1
-dd if=/dev/zero of=files/896KiB-32 bs=917472 count=1	> /dev/null 2>&1
 dd if=/dev/zero of=files/1024KiB bs=1048576 count=1	> /dev/null 2>&1
 dd if=/dev/zero of=files/1024KiB-16 bs=1048560 count=1	> /dev/null 2>&1
 dd if=/dev/zero of=files/1024KiB-32 bs=1048544 count=1	> /dev/null 2>&1
 dd if=/dev/zero of=files/1280KiB+4 bs=1310724 count=1	> /dev/null 2>&1
 dd if=/dev/zero of=files/4096KiB bs=4194304 count=1	> /dev/null 2>&1
-dd if=/dev/zero of=files/6400KiB bs=6553600 count=1	> /dev/null 2>&1
-dd if=/dev/zero of=files/6528KiB-16 bs=6684656 count=1	> /dev/null 2>&1
 dd if=/dev/zero of=files/6528KiB bs=6684672 count=1	> /dev/null 2>&1
 dd if=/dev/zero of=files/6528KiB+16 bs=6684688 count=1	> /dev/null 2>&1
 dd if=/dev/zero of=files/6656KiB-16 bs=6815728 count=1	> /dev/null 2>&1
@@ -45,7 +34,7 @@ if [ -e broken ]; then
 	done
 fi
 
-# rm -f files
+rm -rf files
 
 if [ $FAIL ]; then
 	exit 1
