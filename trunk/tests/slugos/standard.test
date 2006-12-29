@@ -1,5 +1,5 @@
-#!/bin/bash
-image=$(tempfile)
+#!/bin/sh
+image=/tmp/slugimage.$$
 ../slugimage -d -p -o $image -k files/1024KiB-16 -r Ramdisk:1,Flashdisk:files/6528KiB
 hexdump -C $image > $1
 rm -rf $image
