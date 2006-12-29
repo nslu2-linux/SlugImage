@@ -12,7 +12,7 @@ NONINTERACTIVE="yes"
 test="$1"
 DIR=$PWD
 TEST_DIR=$PWD/$(dirname "$test")
-tmp=$(tempfile)
+tmp=/tmp/do-test.$$
 . $test.test "$tmp"
 cd $DIR
 if $(cmp -s $test.expected $tmp); then
