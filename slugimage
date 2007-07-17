@@ -391,10 +391,9 @@ sub readInFirmware {
     my($filename, $partitions_ref) = @_;
 
     my($firmware_buf);
-    my($total_length)   = 0x800000;
 
     open FILE,$filename or die "Can't find firmware image \"$filename\": $!\n";
-    read FILE,$firmware_buf,$total_length or die "Can't read $total_length bytes from \"$filename\": $!\n";
+    read FILE,$firmware_buf,$flash_len or die "Can't read $flash_len bytes from \"$filename\": $!\n";
     close FILE or die "Can't close \"$filename\": $!\n";
 
     $debug and printf("Read 0x%08X bytes from \"%s\"\n", length($firmware_buf), $filename);
