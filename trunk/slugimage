@@ -916,9 +916,6 @@ sub defaultPartitions {
 	    {'name'=>'FIS directory',     'file'=>undef,
 	     'offset'=>0x007e0000,        'size'=>0x00020000,
 	     'variable'=>0, 'header'=>0,  'pseudo'=>0, 'data'=>undef, 'byteswap'=>0},
-	    {'name'=>'Loader config',	  'file'=>undef,
-	     'offset'=>0x007f8000,        'size'=>0x00004000,
-	     'variable'=>0, 'header'=>0,  'pseudo'=>1, 'data'=>undef, 'byteswap'=>0},
 	    {'name'=>'Microcode',	  'file'=>'NPE-B',
 	     'offset'=>0x007fc000,        'size'=>0x00003fe0,
 	     'variable'=>0, 'header'=>16, 'pseudo'=>1, 'data'=>undef, 'byteswap'=>0},
@@ -1052,7 +1049,6 @@ if (defined $fatflash)  {
     $flash_len = 0x01000000;
     map {
 	if (($_->{'name'} eq 'FIS directory') or
-	    ($_->{'name'} eq 'Loader config') or
 	    ($_->{'name'} eq 'Microcode') or
 	    ($_->{'name'} eq 'Trailer')) {
 	    $_->{'offset'} += 0x00800000;
