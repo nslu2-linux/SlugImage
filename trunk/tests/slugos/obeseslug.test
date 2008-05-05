@@ -1,0 +1,5 @@
+#!/bin/sh
+image=/tmp/slugimage.$$
+../slugimage -F -d -p -o $image -k files/1024KiB-16 -r Ramdisk:1,Flashdisk:files/14720KiB
+LANG=C hexdump -C $image > $1
+rm -rf $image
