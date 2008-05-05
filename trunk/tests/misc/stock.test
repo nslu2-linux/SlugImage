@@ -2,5 +2,8 @@
 image=/tmp/slugimage.$$
 ../slugimage -d -p -o $image -k files/1024KiB-16 -r Ramdisk:files/6656KiB-16
 LANG=C hexdump -C $image > $1
+../slugimage -d -u -i $image -f /dev/null
+../slugimage -d -p -o $image -r Ramdisk:ramdisk.gz
+rm -f RedBoot SysConf vmlinuz ramdisk.gz Trailer
 rm -f $image
 

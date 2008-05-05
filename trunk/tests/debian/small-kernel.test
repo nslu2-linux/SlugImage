@@ -2,4 +2,7 @@
 image=/tmp/slugimage.$$
 ../slugimage -d -p -o $image -L files/128KiB-16 -k files/768KiB-16 -r Ramdisk:files/4096KiB
 LANG=C hexdump -C $image > $1
-rm -rf $image
+../slugimage -d -u -i $image -L apex.bin -f /dev/null
+../slugimage -d -p -o $image -L apex.bin -r Ramdisk:ramdisk.gz
+rm -f RedBoot SysConf apex.bin vmlinuz ramdisk.gz Trailer
+rm -f $image
