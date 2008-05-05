@@ -326,7 +326,9 @@ sub spliceFirmwarePartitions {
 
 	# If we are in a variable area, and we haven't reached the end of it,
 	# then splice in another partition for use by the later code.
-	if ($splice and ($partitions_ref->[$partition_count]->{'name'} ne $_->[0])) {
+	if ($splice and
+	    ($partitions_ref->[$partition_count]->{'name'} ne $_->[0]) and
+	    ($partitions_ref->[$partition_count]->{'name'} ne 'Ramdisk')) {
 	    $debug and printf("Splicing new partition <%s> before <%s>\n",
 			      $_->[0], $partitions_ref->[$partition_count]->{'name'});
 	    splice(@{$partitions_ref}, $partition_count, 0, ({'name' => "",'variable'=>1,'header'=>0}));
@@ -342,7 +344,12 @@ sub spliceFirmwarePartitions {
 
 		if (length($partition->{'name'})) {
 		    $debug and printf("Overwriting <%s> with <%s>\n",
-				      $partitions_ref->[$partition_count]->{'name'}, $_->[0]);
+				      $partition->{'name'}, $_->[0]);
+		}
+
+		if (($partition->{'name'} eq 'Ramdisk') and
+		    ($_->[1] != $ramdisk_offset)) {
+		    $partition->{'header'} = 0;
 		}
 
 		$partition->{'name'} = $_->[0];
