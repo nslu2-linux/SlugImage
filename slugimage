@@ -620,6 +620,12 @@ sub layoutPartitions {
 	    $_->{'offset'} = $_->{'start'} - $flash_start;
 	}
 
+	if (($_->{'name'} eq 'Ramdisk') and ($_->{'offset'} > $ramdisk_offset)) {
+	    die sprintf("Ramdisk offset exceeded (0x%05X > 0x%05X) - previous partitions are too large.\n".
+			"Perhaps you meant to use the -r Flashdisk:<filename> syntax instead?\n",
+			$_->{'offset'}, $ramdisk_offset);
+	}
+
 	my $size = defined $_->{'data'} ? length($_->{'data'}) : 0;
 
 	# Add skip regions for the partitions with headers.
