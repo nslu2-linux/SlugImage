@@ -620,12 +620,6 @@ sub layoutPartitions {
 	    $_->{'offset'} = $_->{'start'} - $flash_start;
 	}
 
-	if (($_->{'name'} eq 'Ramdisk') and ($_->{'offset'} > $ramdisk_offset)) {
-	    die sprintf("Ramdisk offset exceeded (0x%05X > 0x%05X) - previous partitions are too large.\n".
-			"Perhaps you meant to use the -r Flashdisk:<filename> syntax instead?\n",
-			$_->{'offset'}, $ramdisk_offset);
-	}
-
 	my $size = defined $_->{'data'} ? length($_->{'data'}) : 0;
 
 	# Add skip regions for the partitions with headers.
@@ -676,8 +670,16 @@ sub layoutPartitions {
 	# Extend to another block if required.
 	if ($size > $_->{'size'}) {
 	    if ($_->{'name'} eq $lastdisk->{'name'}) {
-		die sprintf("Ran out of flash space in <%s> - %s too large.\n", $_->{'name'},
-			    sprintf("0x%05X bytes", ($size - $_->{'size'})));
+		if (($_->{'name'} eq 'Ramdisk') and ($_->{'offset'} > $ramdisk_offset) and
+		    (($size - $_->{'size'}) == $_->{'header'})) {
+		    die sprintf("Ran out of flash space in <%s> - %s too large.\n".
+				"Perhaps you meant to use the -r Flashdisk:<filename> syntax instead?\n",
+				$_->{'name'}, sprintf("0x%05X bytes", ($size - $_->{'size'})));
+		}
+		else {
+		    die sprintf("Ran out of flash space in <%s> - %s too large.\n", $_->{'name'},
+				sprintf("0x%05X bytes", ($size - $_->{'size'})));
+		}
 	    }
 	    $_->{'size'} = $size;
 	    printf("Extending partition <%s> to 0x%08X bytes\n", $_->{'name'}, $_->{'size'});
